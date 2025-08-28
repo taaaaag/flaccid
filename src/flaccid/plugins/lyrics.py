@@ -7,6 +7,7 @@ from various online sources (e.g., Genius, Musixmatch, etc.).
 It could be used as a post-download hook to automatically add lyrics tags
 to downloaded files.
 """
+
 from .base import BasePlugin
 
 

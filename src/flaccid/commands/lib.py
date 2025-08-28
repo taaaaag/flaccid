@@ -6,6 +6,7 @@ This module provides tools to manage the local music library, including:
 - Indexing metadata into a central database.
 - Displaying statistics about the collection.
 """
+
 import sqlite3
 import time
 from pathlib import Path
@@ -18,7 +19,12 @@ from rich.table import Table
 
 from ..core.config import get_settings
 from ..core.database import get_db_connection, init_db, insert_track
-from ..core.library import get_library_stats, index_file, refresh_library, scan_library_paths
+from ..core.library import (
+    get_library_stats,
+    index_file,
+    refresh_library,
+    scan_library_paths,
+)
 
 console = Console()
 app = typer.Typer(
@@ -29,9 +35,15 @@ app = typer.Typer(
 
 @app.command("scan")
 def lib_scan(
-    path: Optional[Path] = typer.Option(None, "--path", "-p", help="Directory to scan (defaults to library path)"),
-    watch: bool = typer.Option(False, "--watch", "-w", help="Continuously watch the library for changes."),
-    verify: bool = typer.Option(False, "--verify", help="Verify file integrity via hashing during scan."),
+    path: Optional[Path] = typer.Option(
+        None, "--path", "-p", help="Directory to scan (defaults to library path)"
+    ),
+    watch: bool = typer.Option(
+        False, "--watch", "-w", help="Continuously watch the library for changes."
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="Verify file integrity via hashing during scan."
+    ),
 ):
     """
     Scan the library for new, changed, or deleted files and update the database.
@@ -42,7 +54,7 @@ def lib_scan(
     """
     settings = get_settings()
     scan_path = (path or settings.library_path).resolve()
-    db_path = (settings.db_path or (settings.library_path / "flaccid.db"))
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
 
     if not scan_path.is_dir():
         raise typer.Exit(f"[red]Error: Path is not a directory: {scan_path}[/red]")
@@ -65,10 +77,14 @@ def lib_scan(
             from watchdog.events import FileSystemEventHandler
             from watchdog.observers import Observer
         except ImportError:
-            console.print("[red]Error: `watchdog` is not installed. Please run `pip install watchdog`.[/red]")
+            console.print(
+                "[red]Error: `watchdog` is not installed. Please run `pip install watchdog`.[/red]"
+            )
             raise typer.Exit(1)
 
-        console.print(f"[cyan]Watching {scan_path} for changes... (Press Ctrl+C to stop)[/cyan]")
+        console.print(
+            f"[cyan]Watching {scan_path} for changes... (Press Ctrl+C to stop)[/cyan]"
+        )
 
         class ScanHandler(FileSystemEventHandler):
             def on_any_event(self, event):
@@ -95,8 +111,14 @@ def lib_scan(
 
 @app.command("index")
 def lib_index(
-    path: Optional[Path] = typer.Option(None, "-p", "--path", help="Directory to index (defaults to your library path)."),
-    rebuild: bool = typer.Option(False, "--rebuild", help="Delete the existing database and rebuild from scratch."),
+    path: Optional[Path] = typer.Option(
+        None, "-p", "--path", help="Directory to index (defaults to your library path)."
+    ),
+    rebuild: bool = typer.Option(
+        False,
+        "--rebuild",
+        help="Delete the existing database and rebuild from scratch.",
+    ),
 ):
     """
     Scan a directory and store metadata for all audio files in the database.
@@ -107,10 +129,12 @@ def lib_index(
     """
     settings = get_settings()
     scan_path = (path or settings.library_path).resolve()
-    db_path = (settings.db_path or (settings.library_path / "flaccid.db"))
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
 
     if rebuild and db_path.exists():
-        console.print(f"[yellow]--rebuild specified. Deleting existing database at {db_path}[/yellow]")
+        console.print(
+            f"[yellow]--rebuild specified. Deleting existing database at {db_path}[/yellow]"
+        )
         db_path.unlink()
 
     conn = get_db_connection(db_path)
@@ -124,7 +148,9 @@ def lib_index(
     with Progress(console=console) as progress:
         task = progress.add_task("[cyan]Indexing...[/cyan]", total=len(files_to_index))
         for file_path in files_to_index:
-            track_data = index_file(file_path, verify=True) # Always verify on full index
+            track_data = index_file(
+                file_path, verify=True
+            )  # Always verify on full index
             if track_data:
                 insert_track(conn, track_data)
             progress.update(task, advance=1, description=f"Indexing {file_path.name}")
@@ -139,7 +165,7 @@ def lib_stats():
     Show high-level statistics about the indexed music library.
     """
     settings = get_settings()
-    db_path = (settings.db_path or (settings.library_path / "flaccid.db"))
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
 
     stats = get_library_stats(db_path)
 

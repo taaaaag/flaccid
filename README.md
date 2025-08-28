@@ -15,11 +15,30 @@ It currently supports downloading from **Tidal** and **Qobuz** and is designed t
     As of v0.2.0 it has been removed. Use only the `flaccid` CLI (`fla`). See
     `CHANGELOG.md` for migration guidance.
   - You may see helpers like configuration migration under `musictools.core` and tagging utilities under `musictools.tag`.
-- Archived assets and prototypes: archive/
-  - Contains previously exported scripts and experiments (e.g., flac_tagger, APIs). Not part of the installed package and not used by the `fla` CLI.
-  - Treat this directory as examples/archives; it is not imported when installing via `pip install -e .`.
+  
 
 If in doubt, start with `src/flaccid`.
+
+Detailed CLI usage and configuration docs are in `docs/USAGE.md`.
+
+Provider notes:
+- Qobuz: `docs/providers/QOBUZ.md`
+- Tidal: `docs/providers/TIDAL.md`
+
+## Configuration Precedence
+
+FLACCID loads settings from multiple layers; later items override earlier ones:
+
+1. Default values (within the app)
+2. User config in `~/.config/flaccid/settings.toml` (if present)
+3. Project-local `settings.toml` in the current working directory
+4. Environment variables (prefix `FLA_`, e.g., `FLA_LIBRARY_PATH`)
+
+Notes:
+- Credentials are stored in the OS keyring when available. If keyring is not
+  available, FLACCID gracefully falls back to a local `.secrets.toml` file.
+- Diagnose keyring issues with: `python -m keyring diagnose`.
+- You can always override with env vars for CI/automation.
 
 ## Key Features
 

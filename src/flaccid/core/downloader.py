@@ -6,12 +6,18 @@ a file from a URL to a specified destination path. It uses `aiohttp` for
 efficient async network requests and `rich` to display a user-friendly
 progress bar during the download.
 """
+
 import asyncio
 from pathlib import Path
 
 import aiohttp
-from rich.progress import (BarColumn, DownloadColumn, Progress,
-                           TextColumn, TimeRemainingColumn)
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 
 async def download_file(url: str, dest_path: Path):
@@ -37,7 +43,9 @@ async def download_file(url: str, dest_path: Path):
                 "•",
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task(f"Downloading {dest_path.name}", total=total_size)
+                task = progress.add_task(
+                    f"Downloading {dest_path.name}", total=total_size
+                )
 
                 # Download the file in chunks and update the progress bar
                 with open(dest_path, "wb") as f:

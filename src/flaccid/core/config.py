@@ -9,12 +9,15 @@ provide a typed `FlaccidSettings` object.
 The `get_settings` function provides a singleton instance of the settings,
 ensuring consistent configuration throughout the application.
 """
+
+import os
 from pathlib import Path
 from typing import Optional
 
 from dynaconf import Dynaconf
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from rich.console import Console
+import toml
 
 console = Console()
 
@@ -22,6 +25,10 @@ console = Console()
 USER_CONFIG_DIR = Path.home() / ".config" / "flaccid"
 USER_SETTINGS_FILE = USER_CONFIG_DIR / "settings.toml"
 USER_SECRETS_FILE = USER_CONFIG_DIR / ".secrets.toml"
+
+# Project-local settings (CWD) to support isolated runs and tests
+LOCAL_SETTINGS_FILE = Path("settings.toml")
+LOCAL_SECRETS_FILE = Path(".secrets.toml")
 
 # Initialize Dynaconf to read from settings files and environment variables.
 settings_loader = Dynaconf(
@@ -39,11 +46,16 @@ settings_loader = Dynaconf(
     load_dotenv=True,
 )
 
+
 class FlaccidSettings(BaseModel):
     """A Pydantic model that defines and validates all application settings."""
 
-    library_path: Path = Field(default_factory=lambda: Path.home() / "Music" / "FLACCID")
-    download_path: Path = Field(default_factory=lambda: Path.home() / "Downloads" / "FLACCID")
+    library_path: Path = Field(
+        default_factory=lambda: Path.home() / "Music" / "FLACCID"
+    )
+    download_path: Path = Field(
+        default_factory=lambda: Path.home() / "Downloads" / "FLACCID"
+    )
     db_path: Optional[Path] = None
 
     # Service API settings
@@ -51,17 +63,54 @@ class FlaccidSettings(BaseModel):
     qobuz_app_secret: Optional[str] = None
     tidal_client_id: Optional[str] = None
 
-    class Config:
-        validate_assignment = True
+    # Pydantic v2 configuration
+    model_config = ConfigDict(validate_assignment=True)
+
+
+def get_default_db_dir() -> Path:
+    """Return a user-scoped default directory for DB storage (not currently used)."""
+    try:
+        from platformdirs import user_data_dir
+
+        return Path(user_data_dir("flaccid"))
+    except Exception:
+        return Path.home() / ".local" / "share" / "flaccid"
+
 
 _settings_instance: Optional[FlaccidSettings] = None
+
 
 def get_settings() -> FlaccidSettings:
     """Get the application settings as a singleton Pydantic model."""
     global _settings_instance
     if _settings_instance is None:
         try:
-            config_dict = settings_loader.as_dict()
+            config_dict = settings_loader.as_dict() or {}
+
+            # If a project-local settings file exists, load and overlay explicitly
+            if LOCAL_SETTINGS_FILE.exists():
+                try:
+                    local_data = (
+                        toml.loads(LOCAL_SETTINGS_FILE.read_text(encoding="utf-8"))
+                        or {}
+                    )
+                    if isinstance(local_data, dict):
+                        config_dict.update(local_data)
+                except Exception:
+                    # Ignore malformed local settings; fall back to other layers
+                    pass
+
+            # Explicit environment overrides for robustness
+            env_lib = os.getenv("FLA_LIBRARY_PATH")
+            env_dl = os.getenv("FLA_DOWNLOAD_PATH")
+            env_db = os.getenv("FLA_DB_PATH")
+            if env_lib:
+                config_dict["library_path"] = env_lib
+            if env_dl:
+                config_dict["download_path"] = env_dl
+            if env_db:
+                config_dict["db_path"] = env_db
+
             _settings_instance = FlaccidSettings(**config_dict)
         except ValidationError as e:
             console.print(f"[red]Configuration error:[/red]\n{e}")
@@ -77,38 +126,35 @@ def get_settings() -> FlaccidSettings:
 
     return _settings_instance
 
-def save_settings(new_settings: FlaccidSettings):
-    """Save updated settings back to the user's `settings.toml` file."""
-    global _settings_instance
-    # Persist globally in the user config directory to avoid CWD confusion
-    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
+def save_settings(new_settings: FlaccidSettings):
+    """Save updated settings to the project-local `settings.toml` file."""
+    global _settings_instance
     # Update in-memory loader for immediate use
     settings_loader.set("library_path", str(new_settings.library_path))
     settings_loader.set("download_path", str(new_settings.download_path))
     if new_settings.db_path is not None:
         settings_loader.set("db_path", str(new_settings.db_path))
 
-    # Write a minimal TOML
-    lines = [
-        "[default]",
-        f"library_path = \"{new_settings.library_path}\"",
-        f"download_path = \"{new_settings.download_path}\"",
-    ]
+    # Persist locally to support isolated filesystem scenarios
+    data = {
+        "library_path": str(new_settings.library_path),
+        "download_path": str(new_settings.download_path),
+    }
     if new_settings.db_path is not None:
-        lines.append(f"db_path = \"{new_settings.db_path}\"")
-    USER_SETTINGS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        data["db_path"] = str(new_settings.db_path)
+
+    LOCAL_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")
 
     _settings_instance = new_settings
+
 
 def create_default_settings() -> FlaccidSettings:
     """Create a default settings instance, useful for resets."""
     return FlaccidSettings()
 
+
 def reset_settings():
-    """Reset settings by deleting the settings file and clearing the instance."""
+    """Reset in-memory settings (do not delete on-disk settings)."""
     global _settings_instance
     _settings_instance = None
-    settings_file = Path("settings.toml")
-    if settings_file.exists():
-        settings_file.unlink()

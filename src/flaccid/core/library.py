@@ -4,11 +4,13 @@ Core logic for library management.
 This module contains functions for scanning the filesystem, computing hashes,
 extracting metadata, and performing incremental updates to the library database.
 """
+
 import hashlib
 import sqlite3
 from pathlib import Path
 
 import mutagen
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TPOS, TSRC
 from rich.console import Console
 
 from .database import Track, get_all_tracks, insert_track, remove_track_by_path
@@ -24,31 +26,93 @@ def compute_hash(file_path: Path, algo: str = "sha1") -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
 def scan_library_paths(library_root: Path) -> list[Path]:
     """Scans a directory recursively for all supported audio files."""
     audio_exts = {".flac", ".mp3", ".m4a", ".alac", ".wav"}
-    return [p for p in library_root.rglob("*") if p.suffix.lower() in audio_exts and p.is_file()]
+    return [
+        p
+        for p in library_root.rglob("*")
+        if p.suffix.lower() in audio_exts and p.is_file()
+    ]
+
 
 def index_file(file_path: Path, verify: bool = False) -> Track | None:
     """Extracts metadata from a single audio file and returns a Track object."""
     try:
-        audio = mutagen.File(file_path, easy=True)
-        if not audio:
-            return None
+        try:
+            audio = mutagen.File(file_path, easy=True)
+        except Exception:
+            # If the container lacks audio frames (ID3-only), continue with fallback
+            audio = None
 
-        def get_tag(key, default=None):
-            val = audio.get(key, [default])
-            return val[0] if val else default
+        title = file_path.stem
+        artist = "Unknown Artist"
+        album = "Unknown Album"
+        albumartist = None
+        tracknumber = 0
+        discnumber = 0
+        isrc = None
+        duration = None
+
+        if audio:
+
+            def get_tag(key, default=None):
+                val = audio.get(key, [default])
+                return val[0] if val else default
+
+            title = get_tag("title", title)
+            artist = get_tag("artist", artist)
+            album = get_tag("album", album)
+            albumartist = get_tag("albumartist", albumartist)
+            try:
+                tracknumber = int(str(get_tag("tracknumber", "0")).split("/")[0])
+            except Exception:
+                tracknumber = 0
+            try:
+                discnumber = int(str(get_tag("discnumber", "0")).split("/")[0])
+            except Exception:
+                discnumber = 0
+            isrc = get_tag("isrc", None)
+            duration = int(audio.info.length) if getattr(audio, "info", None) else None
+        else:
+            # Fallback: bare ID3 tags without audio frames
+            try:
+                id3 = ID3(file_path)
+                if id3.get("TIT2"):
+                    title = str(id3.get("TIT2").text[0]) or title
+                if id3.get("TPE1"):
+                    artist = str(id3.get("TPE1").text[0]) or artist
+                if id3.get("TALB"):
+                    album = str(id3.get("TALB").text[0]) or album
+                if id3.get("TRCK"):
+                    try:
+                        tracknumber = int(
+                            str(id3.get("TRCK").text[0]).split("/")[0] or 0
+                        )
+                    except Exception:
+                        tracknumber = 0
+                if id3.get("TPOS"):
+                    try:
+                        discnumber = int(
+                            str(id3.get("TPOS").text[0]).split("/")[0] or 0
+                        )
+                    except Exception:
+                        discnumber = 0
+                if id3.get("TSRC"):
+                    isrc = str(id3.get("TSRC").text[0])
+            except Exception:
+                return None
 
         track = Track(
-            title=get_tag("title", file_path.stem),
-            artist=get_tag("artist", "Unknown Artist"),
-            album=get_tag("album", "Unknown Album"),
-            albumartist=get_tag("albumartist"),
-            tracknumber=int(get_tag("tracknumber", "0").split('/')[0]),
-            discnumber=int(get_tag("discnumber", "0").split('/')[0]),
-            isrc=get_tag("isrc"),
-            duration=int(audio.info.length) if audio.info else None,
+            title=title,
+            artist=artist,
+            album=album,
+            albumartist=albumartist,
+            tracknumber=tracknumber,
+            discnumber=discnumber,
+            isrc=isrc,
+            duration=duration,
             path=str(file_path.resolve()),
             hash=compute_hash(file_path) if verify else None,
             last_modified=file_path.stat().st_mtime,
@@ -57,6 +121,7 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
     except Exception as e:
         console.print(f"[red]Error indexing {file_path}: {e}[/red]")
         return None
+
 
 def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool = False):
     """Performs an incremental scan of the library and updates the database."""
@@ -89,7 +154,7 @@ def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool =
     for path_str in existing_paths:
         path = Path(path_str)
         db_track = db_tracks[path_str]
-        
+
         is_modified = False
         if verify:
             # Verification is slow but thorough: re-hash and compare
@@ -105,12 +170,13 @@ def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool =
             updated_count += 1
             track_data = index_file(path, verify=verify)
             if track_data:
-                insert_track(conn, track_data) # Upsert handles the update
-    
+                insert_track(conn, track_data)  # Upsert handles the update
+
     if updated_count:
         console.print(f"[cyan]Found {updated_count} modified files.[/cyan]")
 
     console.print("Scan complete.")
+
 
 def get_library_stats(db_path: Path) -> dict:
     """Retrieves statistics from the library database."""
@@ -122,10 +188,18 @@ def get_library_stats(db_path: Path) -> dict:
         cur = conn.cursor()
         stats = {
             "Total Tracks": cur.execute("SELECT COUNT(*) FROM tracks").fetchone()[0],
-            "Total Albums": cur.execute("SELECT COUNT(DISTINCT album) FROM tracks").fetchone()[0],
-            "Total Artists": cur.execute("SELECT COUNT(DISTINCT artist) FROM tracks").fetchone()[0],
-            "Tracks with ISRC": cur.execute("SELECT COUNT(*) FROM tracks WHERE isrc IS NOT NULL").fetchone()[0],
-            "Tracks with Hash": cur.execute("SELECT COUNT(*) FROM tracks WHERE hash IS NOT NULL").fetchone()[0],
+            "Total Albums": cur.execute(
+                "SELECT COUNT(DISTINCT album) FROM tracks"
+            ).fetchone()[0],
+            "Total Artists": cur.execute(
+                "SELECT COUNT(DISTINCT artist) FROM tracks"
+            ).fetchone()[0],
+            "Tracks with ISRC": cur.execute(
+                "SELECT COUNT(*) FROM tracks WHERE isrc IS NOT NULL"
+            ).fetchone()[0],
+            "Tracks with Hash": cur.execute(
+                "SELECT COUNT(*) FROM tracks WHERE hash IS NOT NULL"
+            ).fetchone()[0],
         }
         conn.close()
         return stats

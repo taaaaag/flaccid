@@ -4,7 +4,7 @@ This file tells Codex cloud tasks (and other automated agents) how to set up, ma
 
 Setup script
 
-- `setup.sh` (root): creates a Python virtualenv at `.venv`, upgrades pip, and installs dependencies from `requirements.txt` and `archive/requirements.txt` if present.
+- `setup.sh` (root): creates a Python virtualenv at `.venv`, upgrades pip, and installs dependencies from `requirements.txt`.
 
 Maintenance script
 
@@ -30,6 +30,7 @@ Notes for Codex
 
 - The default Codex universal image provides common language runtimes. This project uses Python 3 and pip.
 - The `setup.sh` script creates `.venv`. The Codex container caching will cache the resulting container state for performance. When resuming from cache, Codex will run `maintenance.sh` to refresh dependencies.
+- Legacy archived prototypes have been removed; there is no `archive/requirements.txt` to install.
 - If you want the agent to have internet access during the agent phase, enable it in the environment settings; otherwise installs happen during setup only.
 
 Troubleshooting

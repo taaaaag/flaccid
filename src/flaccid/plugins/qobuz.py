@@ -76,19 +76,33 @@ def _generate_path_from_template(fields: dict, ext: str) -> str:
 
 
 class _QobuzApiClient:
-    def __init__(self, app_id: str, app_secret: str, auth_token: str, session: aiohttp.ClientSession):
+    def __init__(
+        self,
+        app_id: str,
+        app_secret: str,
+        auth_token: str,
+        session: aiohttp.ClientSession,
+    ):
         self.app_id = app_id
         self.app_secret = app_secret
         self.auth_token = auth_token
         self.session = session
 
-    async def _request(self, endpoint: str, params: dict | None = None, signed: bool = False) -> dict:
+    async def _request(
+        self, endpoint: str, params: dict | None = None, signed: bool = False
+    ) -> dict:
         if not self.session:
             raise RuntimeError("API client must be used within an active session.")
         full_url = f"{QOBUZ_API_URL}{endpoint}"
-        request_params = {"app_id": self.app_id, "user_auth_token": self.auth_token, **(params or {})}
+        request_params = {
+            "app_id": self.app_id,
+            "user_auth_token": self.auth_token,
+            **(params or {}),
+        }
         if signed:
-            ts, sig = _sign_request(self.app_secret, endpoint.strip("/"), **request_params)
+            ts, sig = _sign_request(
+                self.app_secret, endpoint.strip("/"), **request_params
+            )
             request_params["request_ts"] = ts
             request_params["request_sig"] = sig
         async with self.session.get(full_url, params=request_params) as response:
@@ -120,8 +134,11 @@ class QobuzPlugin(BasePlugin):
     async def authenticate(self):
         console.print("Authenticating with Qobuz...")
         settings = get_settings()
-        self.app_id = settings.qobuz_app_id
-        self.app_secret = settings.qobuz_app_secret
+        self.app_id = settings.qobuz_app_id or get_credentials("qobuz", "app_id")
+        # Prefer settings, fall back to keyring
+        self.app_secret = getattr(
+            settings, "qobuz_app_secret", None
+        ) or get_credentials("qobuz", "app_secret")
         self.auth_token = get_credentials("qobuz", "user_auth_token")
         if not all([self.app_id, self.app_secret, self.auth_token]):
             raise Exception(
@@ -160,14 +177,18 @@ class QobuzPlugin(BasePlugin):
         }
         return {k: v for k, v in fields.items() if v is not None}
 
-    async def download_track(self, track_id: str, quality: str, output_dir: Path, allow_mp3: bool = False):
+    async def download_track(
+        self, track_id: str, quality: str, output_dir: Path, allow_mp3: bool = False
+    ):
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
         track_data = await self.api_client.get_track(track_id)
         metadata = self._normalize_metadata(track_data)
         format_id, stream_url = await self._find_stream(track_id, quality, allow_mp3)
         if format_id is None or stream_url is None:
-            console.print(f"[red]Error for track {track_id}:[/red] No download URL found for any tried format id.")
+            console.print(
+                f"[red]Error for track {track_id}:[/red] No download URL found for any tried format id."
+            )
             return
         if isinstance(format_id, int) and format_id < 6 and not allow_mp3:
             console.print(
@@ -182,17 +203,26 @@ class QobuzPlugin(BasePlugin):
         apply_metadata(filepath, metadata)
         console.print(f"[green]\u2705 Downloaded '{metadata['title']}'[/green]")
 
-    async def download_album(self, album_id: str, quality: str, output_dir: Path, allow_mp3: bool = False):
+    async def download_album(
+        self, album_id: str, quality: str, output_dir: Path, allow_mp3: bool = False
+    ):
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
         album_data = await self.api_client.get_album(album_id)
         tracks = album_data.get("tracks", {}).get("items", [])
-        console.print(f"Downloading {len(tracks)} tracks from '{album_data['title']}'...")
-        tasks = [self.download_track(str(track["id"]), quality, output_dir, allow_mp3) for track in tracks]
+        console.print(
+            f"Downloading {len(tracks)} tracks from '{album_data['title']}'..."
+        )
+        tasks = [
+            self.download_track(str(track["id"]), quality, output_dir, allow_mp3)
+            for track in tracks
+        ]
         await asyncio.gather(*tasks)
         console.print("[green]\u2705 Album download complete![/green]")
 
-    async def _find_stream(self, track_id: str, quality: str, allow_mp3: bool = False) -> tuple[int | None, str | None]:
+    async def _find_stream(
+        self, track_id: str, quality: str, allow_mp3: bool = False
+    ) -> tuple[int | None, str | None]:
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
         key = (str(quality) if quality is not None else "").lower()
@@ -202,11 +232,23 @@ class QobuzPlugin(BasePlugin):
         except Exception:
             pass
         tried = QUALITY_FALLBACKS.get(key, QUALITY_FALLBACKS.get("max"))
-        logger.debug("Qobuz: trying format ids %s for track %s (quality=%s, allow_mp3=%s)", tried, track_id, quality, allow_mp3)
+        logger.debug(
+            "Qobuz: trying format ids %s for track %s (quality=%s, allow_mp3=%s)",
+            tried,
+            track_id,
+            quality,
+            allow_mp3,
+        )
         for fmt in tried:
             if isinstance(fmt, int) and fmt < 6 and not allow_mp3:
-                logger.debug("Qobuz: skipping MP3 format_id=%s for track=%s (FLAC-only mode)", fmt, track_id)
-                console.print(f"[yellow]Qobuz: skipping MP3 format_id={fmt} for track {track_id} (use --allow-mp3 to permit MP3)[/yellow]")
+                logger.debug(
+                    "Qobuz: skipping MP3 format_id=%s for track=%s (FLAC-only mode)",
+                    fmt,
+                    track_id,
+                )
+                console.print(
+                    f"[yellow]Qobuz: skipping MP3 format_id={fmt} for track {track_id} (use --allow-mp3 to permit MP3)[/yellow]"
+                )
                 continue
             console.print(f"Qobuz: trying format_id={fmt} for track {track_id}...")
             logger.debug("Qobuz: trying format_id=%s for track=%s", fmt, track_id)
@@ -219,16 +261,26 @@ class QobuzPlugin(BasePlugin):
             url = stream_data.get("url")
             if url:
                 logger.debug("Qobuz: format_id=%s yielded URL %s", fmt, url)
-                console.print(f"[green]Qobuz: selected format_id={fmt} for track {track_id}[/green]")
+                console.print(
+                    f"[green]Qobuz: selected format_id={fmt} for track {track_id}[/green]"
+                )
                 return fmt, url
-        logger.debug("Qobuz: no stream URL found for track %s with tried formats %s", track_id, tried)
-        console.print(f"[yellow]Qobuz: no stream URL found for track {track_id}[/yellow]")
+        logger.debug(
+            "Qobuz: no stream URL found for track %s with tried formats %s",
+            track_id,
+            tried,
+        )
+        console.print(
+            f"[yellow]Qobuz: no stream URL found for track {track_id}[/yellow]"
+        )
         return None, None
 
     async def __aenter__(self):
         await self.authenticate()
         self.session = aiohttp.ClientSession()
-        self.api_client = _QobuzApiClient(self.app_id, self.app_secret, self.auth_token, self.session)
+        self.api_client = _QobuzApiClient(
+            self.app_id, self.app_secret, self.auth_token, self.session
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

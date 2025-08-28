@@ -4,6 +4,7 @@ Metadata tagging commands for FLACCID (`fla tag`).
 This module will provide tools to apply metadata to local files from online
 sources like Qobuz and Apple Music. Currently, these are placeholders.
 """
+
 import asyncio
 from pathlib import Path
 from typing import Optional
@@ -25,7 +26,9 @@ app = typer.Typer(
 @app.command("auto")
 def tag_auto(
     folder: Path = typer.Argument(..., help="The folder of audio files to auto-tag."),
-    service: str = typer.Option("qobuz", "--service", "-s", help="Preferred service for metadata lookup."),
+    service: str = typer.Option(
+        "qobuz", "--service", "-s", help="Preferred service for metadata lookup."
+    ),
 ):
     """
     (Future) Auto-detect and tag a folder of tracks.
@@ -33,13 +36,17 @@ def tag_auto(
     This command will eventually use acoustic fingerprinting (e.g., AcoustID)
     to identify tracks and fetch metadata from the specified service.
     """
-    console.print(f"[yellow]Auto-tagging for folder [blue]{folder}[/blue] is not yet implemented.[/yellow]")
+    console.print(
+        f"[yellow]Auto-tagging for folder [blue]{folder}[/blue] is not yet implemented.[/yellow]"
+    )
     raise typer.Exit(1)
 
 
 @app.command("qobuz")
 def tag_qobuz(
-    album_id: str = typer.Option(..., "--album-id", "-a", help="The Qobuz album ID to source metadata from."),
+    album_id: str = typer.Option(
+        ..., "--album-id", "-a", help="The Qobuz album ID to source metadata from."
+    ),
     folder: Path = typer.Argument(..., help="The local folder to apply tags to."),
 ):
     """
@@ -48,7 +55,9 @@ def tag_qobuz(
     This command will fetch the album metadata from Qobuz and apply it
     to all FLAC files in the specified local folder.
     """
-    console.print(f"[yellow]Tagging from Qobuz album {album_id} is not yet implemented.[/yellow]")
+    console.print(
+        f"[yellow]Tagging from Qobuz album {album_id} is not yet implemented.[/yellow]"
+    )
     # try:
     #     plugin = QobuzPlugin()
     #     asyncio.run(plugin.authenticate())
@@ -63,7 +72,9 @@ def tag_qobuz(
 
 @app.command("apple")
 def tag_apple(
-    query: str = typer.Argument(..., help="An album search query or Apple Music album ID."),
+    query: str = typer.Argument(
+        ..., help="An album search query or Apple Music album ID."
+    ),
     folder: Path = typer.Argument(..., help="The local folder to apply tags to."),
 ):
     """

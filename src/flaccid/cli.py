@@ -4,6 +4,7 @@ FLACCID CLI - Main entry point using Typer.
 This module configures the main Typer application, registers all command groups,
 and defines global options like --version and --verbose.
 """
+
 import asyncio
 import logging
 
@@ -28,11 +29,27 @@ app = typer.Typer(
 # Import and register command groups from the `commands` package
 from .commands import config, get, lib, tag, playlist
 
-app.add_typer(config.app, name="config", help="🔐 Manage authentication, paths, and other settings.")
-app.add_typer(get.app, name="get", help="🚀 Download tracks or albums from supported services.")
-app.add_typer(lib.app, name="lib", help="📚 Manage your local music library (scan, index, view stats).")
-app.add_typer(playlist.app, name="playlist", help="🎶 Match local files against a playlist and export the results.")
-app.add_typer(tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources.")
+app.add_typer(
+    config.app,
+    name="config",
+    help="🔐 Manage authentication, paths, and other settings.",
+)
+app.add_typer(
+    get.app, name="get", help="🚀 Download tracks or albums from supported services."
+)
+app.add_typer(
+    lib.app,
+    name="lib",
+    help="📚 Manage your local music library (scan, index, view stats).",
+)
+app.add_typer(
+    playlist.app,
+    name="playlist",
+    help="🎶 Match local files against a playlist and export the results.",
+)
+app.add_typer(
+    tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources."
+)
 
 
 @app.callback()

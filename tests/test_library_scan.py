@@ -19,7 +19,8 @@ def _make_mp3_with_id3(path: Path, title: str, artist: str, album: str) -> None:
 def test_flaccid_library_index_and_rescan(tmp_path):
     runner = CliRunner()
     with runner.isolated_filesystem():
-        libdir = Path("lib"); libdir.mkdir(parents=True, exist_ok=True)
+        libdir = Path("lib")
+        libdir.mkdir(parents=True, exist_ok=True)
         # Create two minimal MP3s with ID3-only tags
         _make_mp3_with_id3(libdir / "track1.mp3", "Song A", "Artist X", "Album Z")
         _make_mp3_with_id3(libdir / "track2.mp3", "Song B", "Artist Y", "Album Z")

@@ -1,6 +1,7 @@
 """
 Core logic for parsing, matching, and exporting playlists.
 """
+
 import csv
 import json
 import re
@@ -24,6 +25,7 @@ console = Console()
 @dataclass
 class PlaylistTrack:
     """Represents a track from a parsed playlist file."""
+
     title: str = ""
     artist: str = ""
     album: str = ""
@@ -35,7 +37,8 @@ class PlaylistTrack:
 @dataclass
 class MatchResult:
     """Represents the result of matching a single playlist track against the library."""
-    input_track: 'PlaylistTrack'
+
+    input_track: "PlaylistTrack"
     matched_track: Optional[Dict[str, Any]] = None
     match_score: float = 0.0
     match_reasons: List[str] = field(default_factory=list)
@@ -48,76 +51,115 @@ class PlaylistParser:
     def parse_file(self, file_path: Path) -> List[PlaylistTrack]:
         """Parse a playlist file based on its format."""
         suffix = file_path.suffix.lower()
-        if suffix == '.json':
+        if suffix == ".json":
             return self._parse_json(file_path)
-        elif suffix in ['.m3u', '.m3u8']:
+        elif suffix in [".m3u", ".m3u8"]:
             return self._parse_m3u(file_path)
-        elif suffix == '.txt':
+        elif suffix == ".txt":
             return self._parse_txt(file_path)
-        elif suffix == '.csv':
+        elif suffix == ".csv":
             return self._parse_csv(file_path)
         else:
             raise ValueError(f"Unsupported file format: {suffix}")
 
     def _parse_json(self, file_path: Path) -> List[PlaylistTrack]:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         tracks: List[PlaylistTrack] = []
-        playlists = data if isinstance(data, list) else [data]
-        for pl in playlists:
-            if isinstance(pl, dict) and 'tracks' in pl:
-                for track_data in pl['tracks']:
-                    if isinstance(track_data, dict):
-                        tracks.append(PlaylistTrack(
-                            title=track_data.get('title') or track_data.get('track', ''),
-                            artist=track_data.get('artist', ''),
-                            album=track_data.get('album', ''),
-                            isrc=track_data.get('isrc'),
-                            source=f"SongShift: {file_path.name}"
-                        ))
+
+        # Support multiple shapes:
+        # 1) A bare list of track dicts
+        # 2) A dict containing a 'tracks' list
+        # 3) A list of dicts where each may be a track dict or contain 'tracks'
+        def to_track(d: dict) -> PlaylistTrack:
+            return PlaylistTrack(
+                title=d.get("title") or d.get("track", ""),
+                artist=d.get("artist", ""),
+                album=d.get("album", ""),
+                isrc=d.get("isrc"),
+                source=f"JSON: {file_path.name}",
+            )
+
+        if isinstance(data, dict):
+            if "tracks" in data and isinstance(data["tracks"], list):
+                for td in data["tracks"]:
+                    if isinstance(td, dict):
+                        tracks.append(to_track(td))
+            else:
+                # Single track dict
+                tracks.append(to_track(data))
+        elif isinstance(data, list):
+            for item in data:
+                if (
+                    isinstance(item, dict)
+                    and "tracks" in item
+                    and isinstance(item["tracks"], list)
+                ):
+                    for td in item["tracks"]:
+                        if isinstance(td, dict):
+                            tracks.append(to_track(td))
+                elif isinstance(item, dict):
+                    tracks.append(to_track(item))
+
         return tracks
 
     def _parse_m3u(self, file_path: Path) -> List[PlaylistTrack]:
         tracks = []
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
-                if line.startswith('#EXTINF'):
-                    info = line.split(',', 1)[1].strip()
-                    artist, title = info.split(' - ', 1) if ' - ' in info else ("", info)
-                    tracks.append(PlaylistTrack(title=title, artist=artist, source=f"M3U: {file_path.name}"))
+                if line.startswith("#EXTINF"):
+                    info = line.split(",", 1)[1].strip()
+                    artist, title = (
+                        info.split(" - ", 1) if " - " in info else ("", info)
+                    )
+                    tracks.append(
+                        PlaylistTrack(
+                            title=title, artist=artist, source=f"M3U: {file_path.name}"
+                        )
+                    )
         return tracks
 
     def _parse_txt(self, file_path: Path) -> List[PlaylistTrack]:
         tracks = []
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if ' - ' in line:
-                    artist, title = line.split(' - ', 1)
-                    tracks.append(PlaylistTrack(artist=artist.strip(), title=title.strip(), source=f"TXT: {file_path.name}"))
+                if " - " in line:
+                    artist, title = line.split(" - ", 1)
+                    tracks.append(
+                        PlaylistTrack(
+                            artist=artist.strip(),
+                            title=title.strip(),
+                            source=f"TXT: {file_path.name}",
+                        )
+                    )
         return tracks
 
     def _parse_csv(self, file_path: Path) -> List[PlaylistTrack]:
         tracks: List[PlaylistTrack] = []
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
             sniffer = csv.Sniffer()
-            dialect = sniffer.sniff(f.read(2048), delimiters=',;\t')
+            dialect = sniffer.sniff(f.read(2048), delimiters=",;\t")
             f.seek(0)
             reader = csv.DictReader(f, dialect=dialect)
             field_map = {name.lower(): name for name in (reader.fieldnames or [])}
+
             def get_val(row: dict, *keys: str) -> str:
                 for k in keys:
                     if field_map.get(k) and row.get(field_map[k]):
                         return str(row[field_map[k]]).strip()
                 return ""
+
             for row in reader:
-                tracks.append(PlaylistTrack(
-                    title=get_val(row, 'title', 'track'),
-                    artist=get_val(row, 'artist'),
-                    album=get_val(row, 'album'),
-                    isrc=get_val(row, 'isrc') or None,
-                    source=f"CSV: {file_path.name}"
-                ))
+                tracks.append(
+                    PlaylistTrack(
+                        title=get_val(row, "title", "track"),
+                        artist=get_val(row, "artist"),
+                        album=get_val(row, "album"),
+                        isrc=get_val(row, "isrc") or None,
+                        source=f"CSV: {file_path.name}",
+                    )
+                )
         return tracks
 
 
@@ -127,7 +169,9 @@ class PlaylistMatcher:
     def __init__(self, db_path: Path):
         self.conn = get_db_connection(db_path)
         self.conn.create_function("normalize", 1, self._normalize)
-        self.conn.create_function("fuzz_ratio", 2, lambda s1, s2: fuzz.ratio(s1 or "", s2 or ""))
+        self.conn.create_function(
+            "fuzz_ratio", 2, lambda s1, s2: fuzz.ratio(s1 or "", s2 or "")
+        )
 
     def __del__(self):
         if self.conn:
@@ -135,11 +179,18 @@ class PlaylistMatcher:
 
     @staticmethod
     def _normalize(text: str) -> str:
-        if not text: return ""
+        if not text:
+            return ""
         t = text.lower()
-        t = ''.join(c for c in unicodedata.normalize('NFKD', t) if not unicodedata.combining(c))
+        t = "".join(
+            c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)
+        )
         t = re.sub(r"\s*\([^)]*\)|\s*\[[^\]]*\]", " ", t)
-        t = re.sub(r"\b(original mix|album version|radio edit|feat\.?|featuring|remastered|extended)\b", " ", t)
+        t = re.sub(
+            r"\b(original mix|album version|radio edit|feat\.?|featuring|remastered|extended)\b",
+            " ",
+            t,
+        )
         t = re.sub(r"[\-_/,:;~]+", " ", t)
         return re.sub(r"\s+", " ", t).strip()
 
@@ -152,12 +203,20 @@ class PlaylistMatcher:
             ORDER BY (0.6 * title_score + 0.4 * artist_score) DESC
             LIMIT 20
         """
-        cursor.execute(query, (self._normalize(track.title), self._normalize(track.artist)))
+        cursor.execute(
+            query, (self._normalize(track.title), self._normalize(track.artist))
+        )
         return [dict(row) for row in cursor.fetchall()]
 
-    def _calculate_score(self, track: PlaylistTrack, candidate: Dict[str, Any]) -> float:
-        title_score = fuzz.ratio(self._normalize(track.title), self._normalize(candidate['title']))
-        artist_score = fuzz.ratio(self._normalize(track.artist), self._normalize(candidate['artist']))
+    def _calculate_score(
+        self, track: PlaylistTrack, candidate: Dict[str, Any]
+    ) -> float:
+        title_score = fuzz.ratio(
+            self._normalize(track.title), self._normalize(candidate["title"])
+        )
+        artist_score = fuzz.ratio(
+            self._normalize(track.artist), self._normalize(candidate["artist"])
+        )
         return 0.6 * title_score + 0.4 * artist_score
 
     def match_playlist(self, playlist_tracks: List[PlaylistTrack]) -> List[MatchResult]:
@@ -168,9 +227,16 @@ class PlaylistMatcher:
             if candidates:
                 best_match = candidates[0]
                 best_score = self._calculate_score(item, best_match)
-            
-            if best_score > 85: # High-confidence threshold
-                results.append(MatchResult(input_track=item, matched_track=best_match, match_score=best_score, file_path=Path(best_match['path'])))
+
+            if best_score > 85:  # High-confidence threshold
+                results.append(
+                    MatchResult(
+                        input_track=item,
+                        matched_track=best_match,
+                        match_score=best_score,
+                        file_path=Path(best_match["path"]),
+                    )
+                )
             else:
                 results.append(MatchResult(input_track=item))
         return results
@@ -188,28 +254,40 @@ class PlaylistExporter:
             raise ValueError(f"Unsupported export format: {format}")
 
     def _export_m3u(self, results: List[MatchResult], output_path: Path):
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write("#EXTM3U\n")
             for result in results:
                 if result.file_path and result.file_path.exists():
-                    duration = result.matched_track.get('duration', -1) if result.matched_track else -1
-                    artist = result.matched_track.get('artist', '') if result.matched_track else result.input_track.artist
-                    title = result.matched_track.get('title', '') if result.matched_track else result.input_track.title
+                    duration = (
+                        result.matched_track.get("duration", -1)
+                        if result.matched_track
+                        else -1
+                    )
+                    artist = (
+                        result.matched_track.get("artist", "")
+                        if result.matched_track
+                        else result.input_track.artist
+                    )
+                    title = (
+                        result.matched_track.get("title", "")
+                        if result.matched_track
+                        else result.input_track.title
+                    )
                     f.write(f"#EXTINF:{duration},{artist} - {title}\n")
                     f.write(f"{result.file_path.resolve()}\n")
 
     def _export_json(self, results: List[MatchResult], output_path: Path):
         report = {
-            'exported_at': datetime.now().isoformat(),
-            'results': [
+            "exported_at": datetime.now().isoformat(),
+            "results": [
                 {
-                    'input_track': asdict(r.input_track),
-                    'matched_track': r.matched_track,
-                    'match_score': r.match_score,
-                    'file_path': str(r.file_path.resolve()) if r.file_path else None,
+                    "input_track": asdict(r.input_track),
+                    "matched_track": r.matched_track,
+                    "match_score": r.match_score,
+                    "file_path": str(r.file_path.resolve()) if r.file_path else None,
                 }
                 for r in results
-            ]
+            ],
         }
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)

@@ -12,6 +12,7 @@ def test_cli_import():
     """Test that CLI can be imported."""
     try:
         from flaccid.cli import app
+
         assert app is not None
     except ImportError:
         assert False, "Failed to import CLI"

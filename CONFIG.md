@@ -1,6 +1,8 @@
-# Configuration Reference
+# Configuration Reference (Legacy)
 
-As of v0.2.0, the FLACCID CLI (`fla`) is the primary interface. Any legacy references to `musictools` should be translated to FLACCID equivalents documented here.
+As of v0.2.0, the FLACCID CLI (`fla`) is the primary interface. This file contains legacy/alternate configuration concepts and may not reflect all current options.
+
+For the authoritative, up-to-date guide covering config precedence, credentials, and downloads, see `docs/USAGE.md`.
 
 This document lists configuration keys, types, defaults, and environment variable mappings. Values are merged from multiple sources in this precedence:
 

@@ -40,10 +40,8 @@ else
     echo "No requirements.txt found in project root; skipping." >&2
 fi
 
-if [ -f archive/requirements.txt ]; then
-    echo "Installing archive/requirements.txt..."
-    "$PYTHON_CMD" -m pip install --upgrade -r archive/requirements.txt --no-cache-dir
-fi
+# Legacy: previously installed archived prototype requirements if present.
+# The archive/ directory has been removed; this block is intentionally omitted.
 
 echo "Installing common dev tools (pytest, black, pyright, pre-commit)..."
 "$PYTHON_CMD" -m pip install --upgrade pytest black pyright pre-commit

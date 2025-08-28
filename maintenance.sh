@@ -32,10 +32,7 @@ else
     echo "No requirements.txt found in repo root; skipping." >&2
 fi
 
-if [ -f archive/requirements.txt ]; then
-    echo "Installing/refreshing archive/requirements.txt..."
-    "$PYTHON_CMD" -m pip install --upgrade -r archive/requirements.txt --no-cache-dir
-fi
+# Legacy: archive requirements removed along with archive/. Nothing to refresh.
 
 # Optional: run pre-commit hooks in CI if desired
 if command -v pre-commit >/dev/null 2>&1; then

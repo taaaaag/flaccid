@@ -8,6 +8,7 @@ not offer a legitimate way to download FLAC files.
 Its primary purpose will be for the `fla tag apple` command to tag local files
 by searching for matching album metadata on Apple Music.
 """
+
 from .base import BasePlugin
 
 

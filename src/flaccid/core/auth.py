@@ -9,6 +9,7 @@ Windows Credential Locker, or Secret Service on Linux).
 The service name "flaccid" is used to namespace all credentials.
 Keys are stored in the format `{service.lower()}_{key}`.
 """
+
 import keyring
 import keyring.errors
 from rich.console import Console
@@ -18,9 +19,10 @@ console = Console()
 # Define the keys we use for each service to allow for proper clearing.
 # This ensures that `clear_credentials` only removes known keys.
 SERVICE_KEYS = {
-    "qobuz": ["app_id", "user_auth_token"],
+    "qobuz": ["app_id", "app_secret", "user_auth_token"],
     "tidal": ["client_id", "access_token", "refresh_token"],
 }
+
 
 def store_credentials(service: str, key: str, value: str) -> None:
     """Store a credential securely in the system keyring.
@@ -36,6 +38,7 @@ def store_credentials(service: str, key: str, value: str) -> None:
         # Catch potential keyring backend errors
         console.print(f"[red]Error storing credential {key} for {service}: {e}[/red]")
 
+
 def get_credentials(service: str, key: str) -> str | None:
     """Retrieve a stored credential from the system keyring.
 
@@ -49,8 +52,11 @@ def get_credentials(service: str, key: str) -> str | None:
     try:
         return keyring.get_password("flaccid", f"{service.lower()}_{key}")
     except Exception as e:
-        console.print(f"[red]Error retrieving credential {key} for {service}: {e}[/red]")
+        console.print(
+            f"[red]Error retrieving credential {key} for {service}: {e}[/red]"
+        )
         return None
+
 
 def clear_credentials(service: str) -> None:
     """Clear all stored credentials for a given service.
@@ -66,7 +72,9 @@ def clear_credentials(service: str) -> None:
     keys_to_delete = SERVICE_KEYS.get(service, [])
 
     if not keys_to_delete:
-        console.print(f"[yellow]Warning: No keys defined for service '{service}'. Nothing to clear.[/yellow]")
+        console.print(
+            f"[yellow]Warning: No keys defined for service '{service}'. Nothing to clear.[/yellow]"
+        )
         return
 
     for key in keys_to_delete:
@@ -77,7 +85,9 @@ def clear_credentials(service: str) -> None:
             if existing is None:
                 continue
             keyring.delete_password("flaccid", full_key_name)
-        except getattr(keyring.errors, "PasswordDeleteError", Exception) as e:  # macOS backend
+        except getattr(
+            keyring.errors, "PasswordDeleteError", Exception
+        ) as e:  # macOS backend
             try:
                 still_there = keyring.get_password("flaccid", full_key_name) is not None
             except Exception:

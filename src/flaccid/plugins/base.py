@@ -6,6 +6,7 @@ a common interface that all service plugins (like Qobuz, Tidal, etc.) must
 adhere to. This ensures that the core application can interact with any plugin
 in a consistent way.
 """
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 
