@@ -1,0 +1,15 @@
+,1st Priority,2nd Priority,3rd Priority,4th Priority,5th Priority,6th Priority
+TITLE,qobuz,apple,musicbrainz,tidal,discogs,acoustid
+ARTIST,tidal,apple,musicbrainz,qobuz,discogs,acoustid
+ALBUM,qobuz,musicbrainz,apple,tidal,discogs,acoustid
+ALBUMARTIST,musicbrainz,apple,qobuz,tidal,discogs,acoustid
+GENRE,musicbrainz,discogs,qobuz,apple,tidal,acoustid
+DATE,musicbrainz,qobuz,apple,discogs,tidal,acoustid
+LABEL,discogs,qobuz,musicbrainz,apple,tidal,acoustid
+ISRC,musicbrainz,qobuz,tidal,apple,discogs,acoustid
+COMPOSER,musicbrainz,apple,qobuz,discogs,tidal,acoustid
+TRACKNUMBER,qobuz,apple,musicbrainz,tidal,discogs,acoustid
+ARTWORK,apple,qobuz,discogs,tidal,musicbrainz,acoustid
+LYRICS,apple,qobuz,musicbrainz,tidal,discogs,acoustid
+COPYRIGHT,discogs,musicbrainz,apple,qobuz,tidal,acoustid
+CATALOGNUMBER,discogs,musicbrainz,qobuz,apple,tidal,acoustid
