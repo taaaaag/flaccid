@@ -31,3 +31,17 @@ def test_config_path_prints_current_paths():
         res = runner.invoke(app, ["config", "path"])
         assert res.exit_code == 0, res.output
         assert "Current Paths:" in res.output
+
+
+def test_config_show_json_contains_core_keys():
+    """Ensure --json outputs structured keys without requiring exact formatting."""
+    with runner.isolated_filesystem():
+        res = runner.invoke(app, ["config", "show", "--json"])
+        assert res.exit_code == 0, res.output
+        out = res.output
+        # Basic key presence checks (works even if Rich adds colorization)
+        assert '"paths"' in out or "paths" in out
+        assert '"qobuz"' in out or "qobuz" in out
+        assert '"tidal"' in out or "tidal" in out
+        assert '"library"' in out or "library" in out
+        assert '"download"' in out or "download" in out

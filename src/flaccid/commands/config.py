@@ -10,6 +10,7 @@ import hashlib
 import os
 import time
 import webbrowser
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -226,7 +227,9 @@ def config_path(
 
 
 @app.command("show")
-def config_show():
+def config_show(
+    json_output: bool = typer.Option(False, "--json", help="Output configuration and credential status as JSON"),
+):
     """
     Display the current configuration and stored credential status.
 
@@ -234,31 +237,71 @@ def config_show():
     are present in the system keyring without revealing the secrets.
     """
     settings = get_settings()
-    console.print("[bold]Current Configuration[/bold]")
-    console.print("\n[bold]Paths:[/bold]")
-    console.print(f"  Library:  [blue]{settings.library_path}[/blue]")
-    console.print(f"  Download: [blue]{settings.download_path}[/blue]")
 
-    console.print("\n[bold]Qobuz Credentials:[/bold]")
+    # Gather data
     q_app_id_keyring = get_credentials("qobuz", "app_id")
     q_token = get_credentials("qobuz", "user_auth_token")
     q_app_id_settings = settings.qobuz_app_id
-    if q_app_id_keyring or q_app_id_settings:
-        label = "Set"
-        if not q_app_id_keyring and q_app_id_settings:
-            label = "Set (settings)"
-        console.print(f"  App ID:          [green]{label}[/green]")
-    else:
-        console.print("  App ID:          [yellow]Not Set[/yellow]")
-    console.print(f"  User Auth Token: {'[green]Set[/green]' if q_token else '[yellow]Not Set[/yellow]'}")
 
-    console.print("\n[bold]Tidal Credentials:[/bold]")
+    if q_app_id_keyring:
+        q_app_id_source = "keyring"
+    elif q_app_id_settings:
+        q_app_id_source = "settings"
+    else:
+        q_app_id_source = None
+
     t_client_id = get_credentials("tidal", "client_id")
     t_access = get_credentials("tidal", "access_token")
     t_refresh = get_credentials("tidal", "refresh_token")
-    console.print(f"  Client ID:     {'[green]Set[/green]' if t_client_id else '[yellow]Not Set[/yellow]'}")
-    console.print(f"  Access Token:  {'[green]Set[/green]' if t_access else '[yellow]Not Set[/yellow]'}")
-    console.print(f"  Refresh Token: {'[green]Set[/green]' if t_refresh else '[yellow]Not Set[/yellow]'}")
+
+    data = {
+        "paths": {
+            "library": str(settings.library_path),
+            "download": str(settings.download_path),
+            "database": str(settings.db_path or (settings.library_path / "flaccid.db")),
+        },
+        "qobuz": {
+            "app_id": bool(q_app_id_keyring or q_app_id_settings),
+            "app_id_source": q_app_id_source,
+            "user_auth_token": bool(q_token),
+        },
+        "tidal": {
+            "client_id": bool(t_client_id),
+            "access_token": bool(t_access),
+            "refresh_token": bool(t_refresh),
+        },
+    }
+
+    if json_output:
+        console.print_json(json.dumps(data))
+        return
+
+    # Pretty (text) output
+    console.print("[bold]Current Configuration[/bold]")
+    console.print("\n[bold]Paths:[/bold]")
+    console.print(f"  Library:  [blue]{data['paths']['library']}[/blue]")
+    console.print(f"  Download: [blue]{data['paths']['download']}[/blue]")
+
+    console.print("\n[bold]Qobuz Credentials:[/bold]")
+    if data["qobuz"]["app_id"]:
+        label = "Set" if q_app_id_source == "keyring" else "Set (settings)"
+        console.print(f"  App ID:          [green]{label}[/green]")
+    else:
+        console.print("  App ID:          [yellow]Not Set[/yellow]")
+    console.print(
+        f"  User Auth Token: {'[green]Set[/green]' if data['qobuz']['user_auth_token'] else '[yellow]Not Set[/yellow]'}"
+    )
+
+    console.print("\n[bold]Tidal Credentials:[/bold]")
+    console.print(
+        f"  Client ID:     {'[green]Set[/green]' if data['tidal']['client_id'] else '[yellow]Not Set[/yellow]'}"
+    )
+    console.print(
+        f"  Access Token:  {'[green]Set[/green]' if data['tidal']['access_token'] else '[yellow]Not Set[/yellow]'}"
+    )
+    console.print(
+        f"  Refresh Token: {'[green]Set[/green]' if data['tidal']['refresh_token'] else '[yellow]Not Set[/yellow]'}"
+    )
 
 
 @app.command("clear")
