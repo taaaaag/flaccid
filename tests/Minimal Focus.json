@@ -1,0 +1,939 @@
+[
+  {
+    "description" : null,
+    "service" : "tidal",
+    "serviceId" : "e2a6e58d-43d0-4c4e-9393-2125e4194001",
+    "tracks" : [
+      {
+        "service" : "tidal",
+        "artist" : "U137",
+        "serviceId" : "21482456",
+        "track" : "Varberg",
+        "isrc" : "US4KH1355205",
+        "album" : "Dreamer on the Run"
+      },
+      {
+        "service" : "tidal",
+        "artist" : "Dirty Doering",
+        "serviceId" : "246787845",
+        "track" : "Cape of Good Hope",
+        "isrc" : "DESH41500166",
+        "album" : "Cape of Good Hope"
+      },
+      {
+        "service" : "tidal",
+        "artist" : "Tycho",
+        "serviceId" : "26632873",
+        "track" : "Awake",
+        "isrc" : "US2J71309901",
+        "album" : "Awake"
+      },
+      {
+        "service" : "tidal",
+        "artist" : "Direct",
+        "serviceId" : "38490319",
+        "track" : "Tranquility",
+        "isrc" : "CA6D21400092",
+        "album" : "Monstercat 020 - Altitude"
+      },
+      {
+        "service" : "tidal",
+        "artist" : "Pulshar",
+        "serviceId" : "267662724",
+        "track" : "Nospheratu",
+        "isrc" : "DEPI82219478",
+        "album" : "Umbra\/Lux"
+      },
+      {
+        "service" : "tidal",
+        "artist" : "Paul Kalkbrenner",
+        "serviceId" : "87377957",
+        "track" : "Since 77",
+        "isrc" : "DEAE60400351",
+        "album" : "Self"
+      },
+      {
+        "isrc" : "DEAE61001008",
+        "album" : "Werkschau",
+        "artist" : "Paul Kalkbrenner",
+        "service" : "tidal",
+        "track" : "Plätscher",
+        "serviceId" : "87382085"
+      },
+      {
+        "isrc" : "FR6V81120298",
+        "album" : "Room with view Ep",
+        "artist" : "Joris Delacroix",
+        "service" : "tidal",
+        "track" : "Air France",
+        "serviceId" : "16275484"
+      },
+      {
+        "isrc" : "DEAF71103904",
+        "album" : "The One EP",
+        "artist" : "Daniel Bortz",
+        "service" : "tidal",
+        "track" : "Cuz You're The One (Original Mix)",
+        "serviceId" : "6136105"
+      },
+      {
+        "isrc" : "DEM090800101",
+        "album" : "Compost Black Label #36",
+        "artist" : "Solomun",
+        "service" : "tidal",
+        "track" : "Somebody's Story",
+        "serviceId" : "199470635"
+      },
+      {
+        "isrc" : "DEKN60900175",
+        "album" : "Großstadtmärchen",
+        "artist" : "Oliver Koletzki feat. Mieze Katz",
+        "service" : "tidal",
+        "track" : "This is leisure (Original Version)",
+        "serviceId" : "3087247"
+      },
+      {
+        "isrc" : "BRRBU0900176",
+        "album" : "Notations EP",
+        "artist" : "Gui Boratto",
+        "service" : "tidal",
+        "track" : "Notations",
+        "serviceId" : "5333988"
+      },
+      {
+        "isrc" : "DEM090800072",
+        "album" : "Cornflake Boy (Remix EP)",
+        "artist" : "Marbert Rocel",
+        "service" : "tidal",
+        "track" : "Cornflake Boy (Solomun Remix - Vocal)",
+        "serviceId" : "199470590"
+      },
+      {
+        "track" : "Lost Memory",
+        "album" : "Lost Memory",
+        "service" : "tidal",
+        "artist" : "Boris Brejcha",
+        "serviceId" : "16422217",
+        "isrc" : "DEAZ30805308"
+      },
+      {
+        "track" : "Callisto",
+        "album" : "My Love Is Systematic, Vol. 9 (Compiled and Mixed by Sebastien Leger)",
+        "service" : "tidal",
+        "artist" : "Stephan Bodzin",
+        "serviceId" : "68122227",
+        "isrc" : "DEG840700420"
+      },
+      {
+        "isrc" : "SEWKJ1100701",
+        "serviceId" : "3802521",
+        "track" : "When The Birds Go In The Wrong Way",
+        "service" : "tidal",
+        "album" : "When The Birds Go In The Wrong Way",
+        "artist" : "Worakls"
+      },
+      {
+        "isrc" : "NLY491000042",
+        "serviceId" : "4782821",
+        "track" : "Meltdown",
+        "service" : "tidal",
+        "album" : "Waterproof EP",
+        "artist" : "Alessandro Diga"
+      },
+      {
+        "isrc" : "ESA407003170",
+        "serviceId" : "282934045",
+        "track" : "The Rivington",
+        "service" : "tidal",
+        "album" : "The Rivington EP",
+        "artist" : "Gui Boratto"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "87379508",
+        "track" : "We Are Facing the Sun",
+        "artist" : "Sascha Funke",
+        "isrc" : "DEAE60800704",
+        "album" : "Mango"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "212830135",
+        "track" : "Body Language",
+        "artist" : "Booka Shade",
+        "isrc" : "DEBE70500175",
+        "album" : "Movements"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "139635783",
+        "track" : "I'm Not",
+        "artist" : "Oliver Schories",
+        "isrc" : "DEH741200578",
+        "album" : "Herzensangelegenheit"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "140028995",
+        "track" : "Every Wall Is a Door",
+        "artist" : "NTO",
+        "isrc" : "DEH741206689",
+        "album" : "Every Wall Is a Door \/ The Gloomies"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "102015700",
+        "track" : "White Rainbow",
+        "artist" : "Boris Brejcha",
+        "isrc" : "DEKB71534062",
+        "album" : "22"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "87583520",
+        "track" : "The Leopard",
+        "artist" : "Minilogue",
+        "isrc" : "DEBW20700005",
+        "album" : "The Leopard Rmx"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "246045062",
+        "track" : "The Drug",
+        "artist" : "Röyksopp",
+        "isrc" : "GBG4U1000005",
+        "album" : "Senior"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "24857347",
+        "track" : "Mirage",
+        "artist" : "Worakls",
+        "isrc" : "FR6V80541479",
+        "album" : "Mirage"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "7189552",
+        "track" : "Paradise Circus",
+        "artist" : "Massive Attack",
+        "isrc" : "GBAAA0900978",
+        "album" : "Heligoland"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "87650004",
+        "track" : "8000",
+        "artist" : "Extrawelt",
+        "isrc" : "DEBW20600407",
+        "album" : "Schmedding 8000"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "4466467",
+        "track" : "Stuggi Nights (Original Mix)",
+        "artist" : "Tommylefunk",
+        "isrc" : "DEY940400800",
+        "album" : "Berlin Minimal Underground - Autumn Edition (Vol. 6)"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "87379499",
+        "track" : "Double Checked",
+        "artist" : "Sascha Funke",
+        "isrc" : "DEAE60800701",
+        "album" : "Double Checked"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "315198524",
+        "track" : "Fool (feat. Jo Ke)",
+        "artist" : "Nu",
+        "isrc" : "DEDL81100514",
+        "album" : "Fool"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "18274640",
+        "track" : "On The Streets",
+        "artist" : "Federleicht",
+        "isrc" : "DEZ650814425",
+        "album" : "On The Streets - The Remixes X-Tra 10"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "123363126",
+        "track" : "Melodica",
+        "artist" : "Stimming",
+        "isrc" : "NLEW20900018",
+        "album" : "Gaensebluemchen"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "33999015",
+        "track" : "Antropofagia",
+        "artist" : "Gui Boratto",
+        "isrc" : "DEU671400225",
+        "album" : "Abaporu"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "26047351",
+        "track" : "Purple Noise",
+        "artist" : "Boris Brejcha",
+        "isrc" : "DEAZ31405756",
+        "album" : "Feuerfalter Part 02"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "140028995",
+        "track" : "Every Wall Is a Door",
+        "artist" : "NTO",
+        "isrc" : "DEH741206689",
+        "album" : "Every Wall Is a Door \/ The Gloomies"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "18274867",
+        "track" : "Tristesse",
+        "artist" : "Kollektiv Turmstrasse",
+        "isrc" : "DEZ650707115",
+        "album" : "Tristesse"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "3250710",
+        "track" : "Dieses Lied glaubt an sich (Original Version)",
+        "artist" : "Oliver Koletzki",
+        "isrc" : "DEAF70903367",
+        "album" : "Get Wasted"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "181364601",
+        "track" : "Imprint of Pleasure (Original Mix)",
+        "artist" : "Tube",
+        "isrc" : "ES84B1310005",
+        "album" : "Déepalma Ibiza Winter Moods, Vol. 2"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "294781567",
+        "track" : "Lamur (Henry Saiz remix)",
+        "artist" : "Guy J",
+        "isrc" : "GBEPM0700080",
+        "album" : "Lamur"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "4621674",
+        "track" : "Grove",
+        "artist" : "Fritz Kalkbrenner",
+        "isrc" : "DEAF70932131",
+        "album" : "Here Today Gone Tomorrow"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "35790562",
+        "track" : "Lila",
+        "artist" : "Rodriguez Jr.",
+        "isrc" : "DEZ650808091",
+        "album" : "Lila's"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "63122601",
+        "track" : "Été (Original Mix)",
+        "artist" : "Aka Aka",
+        "isrc" : "DECY51124103",
+        "album" : "Varieté"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "88101486",
+        "track" : "Harmonisch Serie",
+        "artist" : "Max Cooper",
+        "isrc" : "DEBW20900001",
+        "album" : "Harmonisch Serie"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "61540990",
+        "track" : "Atlas",
+        "artist" : "Marc Romboy",
+        "isrc" : "DEG840600750",
+        "album" : "Atlas (Remixes)"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "35790562",
+        "track" : "Lila",
+        "artist" : "Rodriguez Jr.",
+        "isrc" : "DEZ650808091",
+        "album" : "Lila's"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "54347506",
+        "track" : "Domino",
+        "artist" : "Oxia",
+        "isrc" : "DEU670600052",
+        "album" : "Armada Deep House Selection, Vol. 9 (The Finest Deep House Tunes) (Extended Versions)"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "63313620",
+        "track" : "Dark Side of My Room",
+        "artist" : "Extrawelt",
+        "isrc" : "DEQ200800161",
+        "album" : "Schöne Neue Extrawelt"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "199470634",
+        "track" : "The Way Back",
+        "artist" : "Solomun",
+        "isrc" : "DEM090800100",
+        "album" : "Compost Black Label #36"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "52458689",
+        "track" : "Astral",
+        "artist" : "Tale Of Us",
+        "isrc" : "DEU671502691",
+        "album" : "Astral"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "291366828",
+        "track" : "Primo",
+        "artist" : "Luigi Madonna",
+        "isrc" : "GBUR61200119",
+        "album" : "Primo"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "103712473",
+        "track" : "Boy Boy Boy",
+        "artist" : "Andhim",
+        "isrc" : "GBMKA1486405",
+        "album" : "Café del Mar - Terrace Mix 5"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "20192345",
+        "track" : "Mi Mujer",
+        "artist" : "Nicolas Jaar",
+        "isrc" : "DECY50919082",
+        "album" : "Time for Us"
+      },
+      {
+        "service" : "tidal",
+        "serviceId" : "184826358",
+        "track" : "Waiting For L",
+        "artist" : "Youandewan",
+        "isrc" : "GBJPB1600643",
+        "album" : "There Is No Right Time"
+      },
+      {
+        "serviceId" : "60638280",
+        "album" : "Reykjavik",
+        "artist" : "Joachim Pastor",
+        "isrc" : "DEAA21500031",
+        "service" : "tidal",
+        "track" : "Oulan Bator"
+      },
+      {
+        "serviceId" : "40032815",
+        "album" : "The Old Gods E.P.",
+        "artist" : "Paji",
+        "isrc" : "DECL81400156",
+        "service" : "tidal",
+        "track" : "The Old Gods"
+      },
+      {
+        "serviceId" : "199464451",
+        "album" : "Cranes",
+        "artist" : "Monkey Safari",
+        "isrc" : "DEQ121429883",
+        "service" : "tidal",
+        "track" : "Cranes"
+      },
+      {
+        "serviceId" : "358406965",
+        "album" : "Eve",
+        "artist" : "Booka Shade",
+        "isrc" : "DES311300227",
+        "service" : "tidal",
+        "track" : "Love Inc"
+      },
+      {
+        "serviceId" : "140007165",
+        "album" : "Fields Without Fences",
+        "artist" : "Oliver Schories",
+        "isrc" : "DEH741500323",
+        "service" : "tidal",
+        "track" : "Missing Empathy"
+      },
+      {
+        "serviceId" : "47852995",
+        "album" : "Cocoon",
+        "artist" : "Moonbeam",
+        "isrc" : "NLE800700125",
+        "service" : "tidal",
+        "track" : "Cocoon"
+      },
+      {
+        "serviceId" : "6290719",
+        "album" : "People",
+        "artist" : "Sascha Braemer",
+        "isrc" : "DEKN60900289",
+        "service" : "tidal",
+        "track" : "People (Orginal Version)"
+      },
+      {
+        "serviceId" : "38004766",
+        "album" : "Neptune",
+        "artist" : "François Ier",
+        "isrc" : "FR9W11406219",
+        "service" : "tidal",
+        "track" : "Neptune"
+      },
+      {
+        "serviceId" : "39671965",
+        "album" : "Darkbeat 10th Anniversary Collection",
+        "artist" : "Solomun",
+        "isrc" : "GBTVG1000140",
+        "service" : "tidal",
+        "track" : "He Is Watching You"
+      },
+      {
+        "serviceId" : "88099180",
+        "album" : "Infinity EP",
+        "artist" : "Marek Hemmann",
+        "isrc" : "DEDU61100059",
+        "service" : "tidal",
+        "track" : "Infinity"
+      },
+      {
+        "serviceId" : "66613952",
+        "album" : "Catchpenny & Cosmos",
+        "artist" : "Be Svendsen",
+        "isrc" : "DECH61100250",
+        "service" : "tidal",
+        "track" : "Solo Para Mi (Mollono.Bass Remix)"
+      },
+      {
+        "serviceId" : "15275007",
+        "album" : "Ink",
+        "artist" : "Jan Blomqvist",
+        "isrc" : "DEKN60900377",
+        "service" : "tidal",
+        "track" : "Something Says"
+      },
+      {
+        "serviceId" : "55221888",
+        "album" : "We Sit In The Sun",
+        "artist" : "Droplex",
+        "isrc" : "GBKQU1533569",
+        "service" : "tidal",
+        "track" : "We Sit In The Sun"
+      },
+      {
+        "serviceId" : "63123103",
+        "album" : "Forever Frost",
+        "artist" : "Aril Brikha",
+        "isrc" : "DECY51108031",
+        "service" : "tidal",
+        "track" : "Forever Frost"
+      },
+      {
+        "serviceId" : "60603174",
+        "album" : "Mistral (Remixes)",
+        "artist" : "Rodriguez Jr.",
+        "isrc" : "DEU671402051",
+        "service" : "tidal",
+        "track" : "Mistral"
+      },
+      {
+        "serviceId" : "18274867",
+        "album" : "Tristesse",
+        "artist" : "Kollektiv Turmstrasse",
+        "isrc" : "DEZ650707115",
+        "service" : "tidal",
+        "track" : "Tristesse"
+      },
+      {
+        "serviceId" : "88099129",
+        "album" : "In Between",
+        "artist" : "Marek Hemmann",
+        "isrc" : "DEDU60900022",
+        "service" : "tidal",
+        "track" : "Yvette"
+      },
+      {
+        "serviceId" : "10696509",
+        "album" : "Wes (EP)",
+        "artist" : "Fritz Kalkbrenner",
+        "isrc" : "DEAF71119900",
+        "service" : "tidal",
+        "track" : "Layer Cake (Original Mix)"
+      },
+      {
+        "serviceId" : "87583215",
+        "album" : "Max Cooper - Traum Collection",
+        "artist" : "Max Cooper",
+        "isrc" : "DEBW21000263",
+        "service" : "tidal",
+        "track" : "Ripple"
+      },
+      {
+        "serviceId" : "248563957",
+        "album" : "Beatboxer",
+        "artist" : "Rodriguez Jr.",
+        "isrc" : "DEZ650808091",
+        "service" : "tidal",
+        "track" : "Lila"
+      },
+      {
+        "serviceId" : "4621680",
+        "album" : "Here Today Gone Tomorrow",
+        "artist" : "Fritz Kalkbrenner",
+        "isrc" : "DEAF70932135",
+        "service" : "tidal",
+        "track" : "Wichita Lineman"
+      },
+      {
+        "serviceId" : "152348376",
+        "album" : "Trialog",
+        "artist" : "HVOB",
+        "isrc" : "DEAF71618485",
+        "service" : "tidal",
+        "track" : "Window"
+      },
+      {
+        "serviceId" : "64510904",
+        "album" : "Emergence",
+        "artist" : "Max Cooper",
+        "isrc" : "GB45A1600426",
+        "service" : "tidal",
+        "track" : "Waves"
+      },
+      {
+        "serviceId" : "20192322",
+        "album" : "Significant Others",
+        "artist" : "Nicolas Jaar",
+        "isrc" : "DECY50919043",
+        "service" : "tidal",
+        "track" : "El Bandido"
+      },
+      {
+        "serviceId" : "13773401",
+        "album" : "Jane",
+        "artist" : "NTO",
+        "isrc" : "FR6V80366476",
+        "service" : "tidal",
+        "track" : "The Sand Dealer"
+      },
+      {
+        "serviceId" : "13781523",
+        "album" : "Room With View",
+        "artist" : "Joris Delacroix",
+        "isrc" : "FR6V81195331",
+        "service" : "tidal",
+        "track" : "Air France"
+      },
+      {
+        "serviceId" : "13781524",
+        "album" : "Room With View",
+        "artist" : "Joris Delacroix",
+        "isrc" : "FR6V81195332",
+        "service" : "tidal",
+        "track" : "Maeva"
+      },
+      {
+        "serviceId" : "254119442",
+        "album" : "King Bromeliad \/ Montparnasse",
+        "artist" : "Floating Points",
+        "isrc" : "GB4HG1300124",
+        "service" : "tidal",
+        "track" : "King Bromeliad"
+      },
+      {
+        "serviceId" : "19084871",
+        "album" : "The North Borders",
+        "artist" : "Bonobo",
+        "isrc" : "GBCFB1300100",
+        "service" : "tidal",
+        "track" : "Cirrus"
+      },
+      {
+        "serviceId" : "60331619",
+        "album" : "The Triad",
+        "artist" : "Pantha Du Prince",
+        "isrc" : "GBCVZ1500137",
+        "service" : "tidal",
+        "track" : "Frau Im Mond, Sterne Laufen"
+      },
+      {
+        "serviceId" : "75722901",
+        "album" : "Lodi EP",
+        "artist" : "Denis Horvat",
+        "isrc" : "DEU671701837",
+        "service" : "tidal",
+        "track" : "Lodi"
+      },
+      {
+        "serviceId" : "134255548",
+        "album" : "A-Side",
+        "artist" : "White Shadows",
+        "isrc" : "USQY51796551",
+        "service" : "tidal",
+        "track" : "A-Side"
+      },
+      {
+        "serviceId" : "51726026",
+        "album" : "Hangover",
+        "artist" : "Jacob Groening",
+        "isrc" : "QMSNZ1461266",
+        "service" : "tidal",
+        "track" : "Hangover"
+      },
+      {
+        "serviceId" : "163416949",
+        "album" : "Iffy",
+        "artist" : "Recondite",
+        "isrc" : "DEEC31400025",
+        "service" : "tidal",
+        "track" : "Levo"
+      },
+      {
+        "serviceId" : "88101933",
+        "album" : "A Forest",
+        "artist" : "Christian Löffler",
+        "isrc" : "DEU671201373",
+        "service" : "tidal",
+        "track" : "Eleven"
+      },
+      {
+        "serviceId" : "103386932",
+        "album" : "Blurred",
+        "artist" : "Kiasmos",
+        "isrc" : "GBWZD1710202",
+        "service" : "tidal",
+        "track" : "Blurred"
+      },
+      {
+        "artist" : "Dominik Eulberg",
+        "service" : "tidal",
+        "serviceId" : "87680462",
+        "isrc" : "DEBW21600200",
+        "album" : "Falkenauge, Katzengold & Taubenblut",
+        "track" : "Katzengold"
+      },
+      {
+        "artist" : "Recondite",
+        "service" : "tidal",
+        "serviceId" : "63093475",
+        "isrc" : "USJ4X0702002",
+        "album" : "On Acid",
+        "track" : "Tie In"
+      },
+      {
+        "artist" : "Dauwd",
+        "service" : "tidal",
+        "serviceId" : "44462678",
+        "isrc" : "US2J71403906",
+        "album" : "Ghostly Swim 2",
+        "track" : "Kolido"
+      },
+      {
+        "artist" : "Christian Löffler",
+        "service" : "tidal",
+        "serviceId" : "88102752",
+        "isrc" : "DEU671401379",
+        "album" : "Young Alaska",
+        "track" : "Veiled Grey"
+      },
+      {
+        "artist" : "nils hoffmann",
+        "service" : "tidal",
+        "serviceId" : "248963947",
+        "isrc" : "DEBE71900583",
+        "album" : "Second Sun",
+        "track" : "Second Sun"
+      },
+      {
+        "artist" : "AK",
+        "service" : "tidal",
+        "serviceId" : "130107731",
+        "isrc" : "QZFYZ2094928",
+        "album" : "All Equal",
+        "track" : "All Equal"
+      },
+      {
+        "artist" : "Namito",
+        "service" : "tidal",
+        "serviceId" : "108219476",
+        "isrc" : "US83Z1911228",
+        "album" : "Stone Flower",
+        "track" : "Stone Flower (Original)"
+      },
+      {
+        "artist" : "Viken Arman",
+        "service" : "tidal",
+        "serviceId" : "240068730",
+        "isrc" : "FRX201845049",
+        "album" : "Willow",
+        "track" : "In My Dream"
+      },
+      {
+        "artist" : "Christian Löffler",
+        "service" : "tidal",
+        "serviceId" : "122988234",
+        "isrc" : "QMFME1924120",
+        "album" : "Lys",
+        "track" : "Roth (feat. Mohna)"
+      },
+      {
+        "artist" : "Qlons",
+        "service" : "tidal",
+        "serviceId" : "140144661",
+        "isrc" : "FR9W11702955",
+        "album" : "Double Tete",
+        "track" : "Algun Lugar"
+      },
+      {
+        "artist" : "Beneath Usual",
+        "service" : "tidal",
+        "serviceId" : "79755791",
+        "isrc" : "GBKQU1783877",
+        "album" : "Beyond",
+        "track" : "Perception"
+      },
+      {
+        "artist" : "Dominik Eulberg",
+        "service" : "tidal",
+        "serviceId" : "87666354",
+        "isrc" : "DEBW20900054",
+        "album" : "Sensorika",
+        "track" : "Sansula"
+      },
+      {
+        "artist" : "Sascha Funke",
+        "service" : "tidal",
+        "serviceId" : "87379507",
+        "isrc" : "DEAE60800703",
+        "album" : "Mango",
+        "track" : "Mango"
+      },
+      {
+        "artist" : "Oxia",
+        "service" : "tidal",
+        "serviceId" : "14798460",
+        "isrc" : "FRT091200008",
+        "album" : "Tides of Mind",
+        "track" : "Harmonie"
+      },
+      {
+        "artist" : "Jasise",
+        "service" : "tidal",
+        "serviceId" : "230060367",
+        "isrc" : "SE5IB2126920",
+        "album" : "SPF",
+        "track" : "SPF"
+      },
+      {
+        "artist" : "Abel Tasman",
+        "service" : "tidal",
+        "serviceId" : "230040336",
+        "isrc" : "SE5IB2144902",
+        "album" : "Sunny Nelson (Edit)",
+        "track" : "Sunny Nelson (Edit)"
+      },
+      {
+        "artist" : "My Ocean",
+        "service" : "tidal",
+        "serviceId" : "249409237",
+        "isrc" : "SE5W32000221",
+        "album" : "Southern Sky",
+        "track" : "Southern Sky"
+      },
+      {
+        "artist" : "Znoijk",
+        "service" : "tidal",
+        "serviceId" : "230026899",
+        "isrc" : "SE5IB2159014",
+        "album" : "Colors By Shade",
+        "track" : "Colors By Shade"
+      },
+      {
+        "artist" : "Black City Lights",
+        "service" : "tidal",
+        "serviceId" : "26387540",
+        "isrc" : "USQY51434419",
+        "album" : "Parallels",
+        "track" : "Get Away"
+      },
+      {
+        "artist" : "My Ocean",
+        "service" : "tidal",
+        "serviceId" : "249277036",
+        "isrc" : "SE5W32101863",
+        "album" : "Secrets Calling",
+        "track" : "Secrets Calling"
+      },
+      {
+        "artist" : "Candrian",
+        "service" : "tidal",
+        "serviceId" : "194253849",
+        "isrc" : "SE6RU2118201",
+        "album" : "City Bumps",
+        "track" : "City Bumps"
+      },
+      {
+        "artist" : "Mad Traks",
+        "service" : "tidal",
+        "serviceId" : "199906360",
+        "isrc" : "SE5IB2143102",
+        "album" : "In Décadence",
+        "track" : "In Décadence"
+      },
+      {
+        "artist" : "Robo Rat",
+        "service" : "tidal",
+        "serviceId" : "249285041",
+        "isrc" : "SE5W32103414",
+        "album" : "Mope Amok",
+        "track" : "Mope Amok"
+      },
+      {
+        "artist" : "Jones Meadow",
+        "service" : "tidal",
+        "serviceId" : "198200737",
+        "isrc" : "SE5Q52102629",
+        "album" : "Concrete Miracle EP",
+        "track" : "Paint"
+      },
+      {
+        "artist" : "Ran the Man",
+        "service" : "tidal",
+        "serviceId" : "187706423",
+        "isrc" : "SE5Q52101667",
+        "album" : "Moonbeam \/ Drifted",
+        "track" : "Drifted"
+      },
+      {
+        "artist" : "Son-us",
+        "service" : "tidal",
+        "serviceId" : "249403740",
+        "isrc" : "SE5W32202183",
+        "album" : "Apelsin",
+        "track" : "Apelsin"
+      }
+    ],
+    "name" : "Minimal Focus",
+    "snapshotId" : null
+  }
+]
