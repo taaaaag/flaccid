@@ -8,6 +8,7 @@ This module provides tools to manage the local music library, including:
 """
 
 import sqlite3
+import json
 import time
 from pathlib import Path
 from typing import Optional
@@ -160,7 +161,7 @@ def lib_index(
 
 
 @app.command("stats")
-def lib_stats():
+def lib_stats(json_output: bool = typer.Option(False, "--json", help="Output JSON")):
     """
     Show high-level statistics about the indexed music library.
     """
@@ -172,6 +173,10 @@ def lib_stats():
     if stats.get("error"):
         raise typer.Exit(f"[red]Error:[/red] {stats['error']}")
 
+    if json_output:
+        typer.echo(json.dumps(stats))
+        return
+
     table = Table(title="FLACCID Library Statistics")
     table.add_column("Metric", style="cyan", no_wrap=True)
     table.add_column("Value", style="magenta")
@@ -180,3 +185,16 @@ def lib_stats():
         table.add_row(key, str(value))
 
     console.print(table)
+
+
+@app.command("vacuum")
+def lib_vacuum():
+    """Optimize the library database (VACUUM + ANALYZE)."""
+    settings = get_settings()
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
+    if not db_path.exists():
+        raise typer.Exit("No database found. Run `fla lib index` first.")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("VACUUM")
+        conn.execute("ANALYZE")
+    console.print("[green]✅ Database optimized.[/green]")

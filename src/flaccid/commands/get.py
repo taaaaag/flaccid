@@ -275,6 +275,9 @@ def main(
         "--allow-mp3",
         help="Allow MP3 (lossy) fallbacks when no FLAC is available.",
     ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output a summary JSON after completion"
+    ),
 ):
     """
     🚀 Download tracks or albums from supported services.
@@ -304,3 +307,18 @@ def main(
             allow_mp3,
         )
     )
+    if json_output:
+        result = {
+            "input": input_value or qobuz_id or tidal_id,
+            "service": (
+                "qobuz"
+                if qobuz_id or (input_value or "").find("qobuz") != -1
+                else ("tidal" if tidal_id or (input_value or "").find("tidal") != -1 else None)
+            ),
+            "mode": "album" if album else ("track" if track else None),
+            "allow_mp3": allow_mp3,
+            "status": "ok",
+        }
+        import json as _json
+
+        typer.echo(_json.dumps(result))

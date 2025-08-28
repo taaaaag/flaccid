@@ -23,6 +23,7 @@ import random
 import toml
 
 from ..core.auth import clear_credentials, get_credentials, store_credentials
+from ..core.retry import retry_with_backoff
 from ..core.config import (
     create_default_settings,
     get_settings,
@@ -59,16 +60,13 @@ def _post_with_retries(
     timeout=HTTP_TIMEOUT,
     max_retries: int = MAX_RETRIES,
 ):
-    attempt = 0
-    while True:
-        try:
-            return requests.post(url, data=data, headers=headers, timeout=timeout)
-        except requests.RequestException:
-            attempt += 1
-            if attempt > max_retries:
-                raise
-            sleep_for = BACKOFF_BASE * (2 ** (attempt - 1)) + random.uniform(0, 0.25)
-            time.sleep(sleep_for)
+    return retry_with_backoff(
+        lambda: requests.post(url, data=data, headers=headers, timeout=timeout),
+        retries=max_retries,
+        base=BACKOFF_BASE,
+        cap=5.0,
+        jitter=0.25,
+    )
 
 
 def _persist_secret(k: str, v: str) -> bool:

@@ -102,6 +102,8 @@ def init_db(conn: sqlite3.Connection):
         """
         )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_path ON tracks (path)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_album ON tracks (album)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_artist ON tracks (artist)")
         conn.commit()
     except sqlite3.Error as e:
         console.print(f"[red]Database initialization error: {e}[/red]")

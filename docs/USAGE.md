@@ -131,6 +131,9 @@ fla get -t 8690248 --album
 
 # Allow MP3 fallbacks (otherwise MP3-only streams are skipped)
 fla get -q 12888812 --track --allow-mp3
+
+# Summary JSON output
+fla get -q 12888812 --track --json
 ```
 
 ### Quality and Fallbacks
@@ -177,3 +180,19 @@ If you paste a URL without `http(s)://`, FLACCID will try adding `https://` auto
 - No files indexed after `fla lib index`:
   - Confirm your `library_path` is correct with `fla config path`.
   - Ensure files have readable tags (ID3 or Vorbis) or valid extensions.
+
+---
+
+## Library Commands
+
+- Stats in JSON:
+
+```bash
+fla lib stats --json
+```
+
+- Vacuum/optimize the database:
+
+```bash
+fla lib vacuum
+```
