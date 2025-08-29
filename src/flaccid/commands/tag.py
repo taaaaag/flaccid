@@ -69,7 +69,7 @@ def tag_fix_artist(
     changed = 0
     import mutagen
     from mutagen.flac import FLAC
-    from mutagen.id3 import ID3, TPE1
+    from mutagen.id3 import ID3, TPE1, TPE2, TXXX
     from mutagen.mp4 import MP4
 
     for f in files:
@@ -79,13 +79,16 @@ def tag_fix_artist(
             cur = None
             if ext == ".flac":
                 audio = FLAC(f)
-                cur = ", ".join(audio.get("artist", [])) if "artist" in audio else None
-                aa = ", ".join(audio.get("albumartist", [])) if "albumartist" in audio else None
+                cur_list = audio.get("artist", []) if "artist" in audio else []
+                cur = ", ".join(cur_list) if cur_list else None
+                aa_list = audio.get("albumartist", []) if "albumartist" in audio else []
+                aa = ", ".join(aa_list) if aa_list else None
                 if prefer_albumartist and aa and aa.strip() and aa != cur:
                     if preview:
                         console.print(f"FLAC: {f.name} -> ARTIST='{aa}'")
                     else:
-                        audio["ARTIST"] = [aa]
+                        # Preserve list semantics for Vorbis comments
+                        audio["artist"] = list(aa_list) if aa_list else [aa]
                         audio.save()
                         changed += 1
             elif ext == ".mp3":
@@ -94,19 +97,41 @@ def tag_fix_artist(
                 except Exception:
                     id3 = ID3()
                 cur = str(id3.get("TPE1").text[0]) if id3.get("TPE1") else None
-                # No standard ALBUMARTIST in ID3 easy tags; skip unless desired
+                # ID3: Album Artist is commonly stored in TPE2 or custom TXXX
                 if prefer_albumartist:
-                    # Try TXXX:ALBUMARTIST first
                     aa = None
-                    for fr in id3.getall("TXXX"):
-                        if getattr(fr, "desc", "") == "ALBUMARTIST" and fr.text:
-                            aa = str(fr.text[0])
-                            break
-                    if aa and aa != cur:
+                    # Prefer TPE2 if present
+                    if id3.get("TPE2") and getattr(id3.get("TPE2"), "text", None):
+                        try:
+                            aa = str(id3.get("TPE2").text[0])
+                        except Exception:
+                            aa = None
+                    # Fallback to common TXXX variants
+                    if not aa:
+                        for fr in id3.getall("TXXX"):
+                            desc = getattr(fr, "desc", "") or ""
+                            if desc.upper().replace(" ", "") in {"ALBUMARTIST", "ALBUMARTISTSORT"} and fr.text:
+                                aa = str(fr.text[0])
+                                break
+                    if aa and aa.strip() and aa != cur:
                         if preview:
                             console.print(f"MP3: {f.name} -> ARTIST='{aa}'")
                         else:
-                            id3.add(TPE1(encoding=3, text=aa))
+                            # Replace any existing TPE1 instead of adding duplicates
+                            try:
+                                id3.delall("TPE1")
+                            except Exception:
+                                pass
+                            id3.add(TPE1(encoding=3, text=[aa]))
+                            # Ensure TPE2 mirrors Album Artist if missing
+                            if not id3.get("TPE2"):
+                                id3.add(TPE2(encoding=3, text=[aa]))
+                            # Optionally persist a TXXX marker for interoperability
+                            has_txxx = any(
+                                (getattr(fr, "desc", "") or "").upper() == "ALBUMARTIST" for fr in id3.getall("TXXX")
+                            )
+                            if not has_txxx:
+                                id3.add(TXXX(encoding=3, desc="ALBUMARTIST", text=[aa]))
                             id3.save(f)
                             changed += 1
             elif ext == ".m4a":
