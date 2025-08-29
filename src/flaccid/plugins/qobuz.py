@@ -25,6 +25,8 @@ from ..core.config import get_settings
 from ..core.downloader import download_file
 from ..core.ratelimit import AsyncRateLimiter
 from ..core.metadata import apply_metadata
+from ..core.config import get_settings as _get_settings_cfg
+from ..core.database import get_db_connection as _db_conn
 
 QOBUZ_API_URL = "https://www.qobuz.com/api.json/0.2"
 DEFAULT_QOBUZ_APP_ID = "798273057"
@@ -107,6 +109,9 @@ class _QobuzApiClient:
         self.limiter = limiter
         # Try multiple secrets when provided, first wins
         self.app_secrets = list(app_secrets or ([] if not app_secret else [app_secret]))
+        self.active_secret: Optional[str] = None
+        # Discovered working formats preference (highest → lowest)
+        self.format_preference: Optional[List[int]] = None
 
     async def _request(
         self, endpoint: str, params: dict | None = None, signed: bool = False
@@ -137,7 +142,7 @@ class _QobuzApiClient:
     async def get_album(self, album_id: str) -> dict:
         return await self._request("/album/get", {"album_id": album_id})
 
-    async def get_file_url(self, track_id: str, format_id: int) -> dict:
+    async def get_file_url(self, track_id: str, format_id: int, *, timeout: float | None = None) -> dict:
         if not self.session:
             raise RuntimeError("API client must be used within an active session.")
         if not self.app_secrets:
@@ -148,7 +153,12 @@ class _QobuzApiClient:
         # Do NOT include app_id/user_auth_token in params; send via headers only
         base_params = {"track_id": track_id, "format_id": format_id, "intent": "stream"}
         last_exc: Exception | None = None
-        for secret in self.app_secrets:
+        secrets_to_try = (
+            [self.active_secret] if self.active_secret else list(self.app_secrets)
+        )
+        for secret in secrets_to_try:
+            if not secret:
+                continue
             try:
                 if self.limiter:
                     await self.limiter.acquire()
@@ -160,13 +170,19 @@ class _QobuzApiClient:
                 params = dict(base_params)
                 params["request_ts"] = ts
                 params["request_sig"] = sig
-                async with self.session.get(endpoint, params=params) as response:
+                # Keep per-try timeout short so unsupported formats don't stall
+                import aiohttp as _aio
+                to = _aio.ClientTimeout(total=(timeout or 4.0))
+                async with self.session.get(endpoint, params=params, timeout=to) as response:
                     response.raise_for_status()
                     jd = await response.json()
                     if isinstance(jd, dict) and jd.get("url"):
+                        # Cache winner secret for subsequent calls
+                        self.active_secret = secret
                         return jd
                     file_obj = jd.get("file") if isinstance(jd, dict) else None
                     if isinstance(file_obj, dict) and file_obj.get("url"):
+                        self.active_secret = secret
                         return {"url": file_obj.get("url")}
             except Exception as e:
                 last_exc = e
@@ -175,6 +191,102 @@ class _QobuzApiClient:
         if last_exc:
             raise last_exc
         return {}
+
+    async def prime_secret(self) -> None:
+        """Quickly select a working secret (like Streamrip/qopy cfg_setup()).
+
+        Tries each secret once against a known public track id with FLAC format.
+        Uses a short per-request timeout to avoid long stalls.
+        """
+        if not self.session or not self.app_secrets:
+            return
+        TEST_TRACK_ID = "5966783"  # common test id used in community tools
+        endpoint = f"{QOBUZ_API_URL}/track/getFileUrl"
+        for secret in self.app_secrets:
+            if not secret:
+                continue
+            try:
+                ts, sig = _sign_request(
+                    secret,
+                    "/track/getFileUrl",
+                    track_id=TEST_TRACK_ID,
+                    # Use MP3 for maximum compatibility when priming secret
+                    format_id=5,
+                    intent="stream",
+                )
+                params = {
+                    "track_id": TEST_TRACK_ID,
+                    "format_id": 5,
+                    "intent": "stream",
+                    "request_ts": ts,
+                    "request_sig": sig,
+                }
+                # Short timeout per probe
+                import aiohttp as _aio
+
+                to = _aio.ClientTimeout(total=3.5)
+                async with self.session.get(endpoint, params=params, timeout=to) as r:
+                    if r.status != 200:
+                        continue
+                    jd = await r.json()
+                    url = (jd or {}).get("url") or ((jd or {}).get("file") or {}).get("url")
+                    if url:
+                        self.active_secret = secret
+                        return
+            except Exception:
+                continue
+
+    async def calibrate_formats(self) -> None:
+        """Discover the highest working format_id once and cache an order.
+
+        Mirrors qobuz-dl behavior by probing a public test track with
+        descending quality list. This avoids trying unavailable formats for
+        every track (e.g., 29) when the account or region doesn’t support them.
+        """
+        if not self.session or not (self.active_secret or self.app_secrets):
+            return
+        order = [29, 27, 19, 7, 6, 5]
+        TEST_TRACK_ID = "5966783"
+        for fmt in order:
+            try:
+                jd = await self.get_file_url(TEST_TRACK_ID, fmt, timeout=2.0)
+                url = (jd or {}).get("url") or ((jd or {}).get("file") or {}).get("url")
+                if url:
+                    # Prefer from the first working fmt onwards
+                    idx = order.index(fmt)
+                    self.format_preference = order[idx:]
+                    logger = logging.getLogger(__name__)
+                    logger.debug("qobuz.calibrate_formats: preference=%s", self.format_preference)
+                    return
+            except Exception:
+                continue
+        # If none worked, leave as None; caller uses defaults
+        
+    async def calibrate_formats_for_track(self, track_id: str) -> None:
+        """Calibrate working formats using the actual target track id.
+
+        Helps when global calibration fails due to geo/rights limits on the
+        test track. Establishes a preference list for subsequent downloads.
+        """
+        if not self.session or not (self.active_secret or self.app_secrets):
+            return
+        order = [29, 27, 19, 7, 6, 5]
+        for fmt in order:
+            try:
+                jd = await self.get_file_url(track_id, fmt, timeout=2.0)
+                url = (jd or {}).get("url") or ((jd or {}).get("file") or {}).get("url")
+                if url:
+                    idx = order.index(fmt)
+                    self.format_preference = order[idx:]
+                    logger = logging.getLogger(__name__)
+                    logger.debug(
+                        "qobuz.calibrate_formats_for_track: track=%s preference=%s",
+                        track_id,
+                        self.format_preference,
+                    )
+                    return
+            except Exception:
+                continue
 
     async def get_playlist(self, playlist_id: str, *, limit: int = 500, offset: int = 0) -> dict:
         # Qobuz playlist metadata (tracks are usually under tracks.items)
@@ -230,7 +342,13 @@ def _load_streamrip_config() -> tuple[Optional[str], list[str]]:
 
 
 class QobuzPlugin(BasePlugin):
-    def __init__(self, *, correlation_id: str | None = None, rps: int | None = None):
+    def __init__(
+        self,
+        *,
+        correlation_id: str | None = None,
+        rps: int | None = None,
+        prefer_29: bool | None = False,
+    ):
         self.app_id: str | None = None
         self.app_secret: str | None = None
         self.app_secrets: list[str] | None = None
@@ -239,6 +357,7 @@ class QobuzPlugin(BasePlugin):
         self.session: aiohttp.ClientSession | None = None
         self.correlation_id: str | None = correlation_id
         self._rps: int | None = rps
+        self._prefer_29: bool | None = prefer_29
 
     async def authenticate(self):
         console.print("Authenticating with Qobuz...")
@@ -378,10 +497,37 @@ class QobuzPlugin(BasePlugin):
                 return val.strip() or None
             return None
 
+        def _extract_main_artist_from_performers(val) -> str | None:
+            """Try to pick only main/primary artists from a performers list.
+
+            Qobuz may include many contributors in `performers` with roles.
+            We filter to common main roles so the ARTIST tag remains clean.
+            """
+            if not isinstance(val, list):
+                return None
+            names: list[str] = []
+            for it in val:
+                if not isinstance(it, dict):
+                    continue
+                role = str(it.get("role") or it.get("type") or "").lower()
+                if any(k in role for k in ("main", "primary")) or role in {"artist", "mainartist", "main artist"}:
+                    n = it.get("name")
+                    if not n and isinstance(it.get("artist"), dict):
+                        n = it.get("artist", {}).get("name")
+                    if n and str(n) not in names:
+                        names.append(str(n))
+            return ", ".join(names) if names else None
+
         album = track_data.get("album") or {}
         albumartist = _join_names(_safe_get(album, "artist"))
         performers = track_data.get("performers")
-        artist = _join_names(performers) or albumartist or _join_names(track_data.get("artist"))
+        # Prefer specific main/primary artist, then track.artist, then album artist
+        artist = (
+            _extract_main_artist_from_performers(performers)
+            or _join_names(track_data.get("artist"))
+            or _join_names(track_data.get("performer"))
+            or albumartist
+        )
         label_v = _safe_get(album, "label")
         label = label_v.get("name") if isinstance(label_v, dict) else (label_v if isinstance(label_v, str) else None)
         genre_v = _safe_get(album, "genre")
@@ -415,6 +561,9 @@ class QobuzPlugin(BasePlugin):
             "upc": _safe_get(album, "upc"),
             "lyrics": track_data.get("lyrics"),
             "cover_url": cover_url,
+            # Provider identifiers for tagging and DB
+            "qobuz_track_id": str(track_data.get("id")) if track_data.get("id") else None,
+            "qobuz_album_id": str(_safe_get(album, "id")) if _safe_get(album, "id") else None,
         }
         return {k: v for k, v in fields.items() if v is not None}
 
@@ -473,6 +622,40 @@ class QobuzPlugin(BasePlugin):
         filepath.parent.mkdir(parents=True, exist_ok=True)
         await download_file(stream_url, filepath)
         apply_metadata(filepath, metadata)
+        # Upsert into library database with provider IDs unless explicitly disabled
+        try:
+            import os as _os
+            if (_os.getenv("FLA_DISABLE_AUTO_DB") or "").strip() != "1":
+                from ..core.database import (
+                    Track as _Track,
+                    get_db_connection as _dbc,
+                    init_db as _init_db,
+                    insert_track as _insert,
+                )
+                from ..core.config import get_settings as _get_settings
+
+                _st = _get_settings()
+                _db_path = _st.db_path or (_st.library_path / "flaccid.db")
+                conn = _dbc(_db_path)
+                _init_db(conn)
+                tr = _Track(
+                    title=str(metadata.get("title")),
+                    artist=str(metadata.get("artist")) if metadata.get("artist") else None,
+                    album=str(metadata.get("album")) if metadata.get("album") else None,
+                    albumartist=str(metadata.get("albumartist")) if metadata.get("albumartist") else None,
+                    tracknumber=int(metadata.get("tracknumber") or 0),
+                    discnumber=int(metadata.get("discnumber") or 0),
+                    duration=None,
+                    isrc=metadata.get("isrc"),
+                    qobuz_id=str(metadata.get("qobuz_track_id") or track_id),
+                    path=str(filepath.resolve()),
+                    hash=None,
+                    last_modified=filepath.stat().st_mtime,
+                )
+                _insert(conn, tr)
+                conn.close()
+        except Exception:
+            pass
         if verify:
             try:
                 from ..core.verify import verify_media
@@ -528,6 +711,38 @@ class QobuzPlugin(BasePlugin):
                 "corr": self.correlation_id,
             },
         )
+        # Filter out tracks already in DB by qobuz_id
+        try:
+            st = _get_settings_cfg()
+            db_path = st.db_path or (st.library_path / "flaccid.db")
+            conn = _db_conn(db_path)
+            cur = conn.cursor()
+            def _exists(tid: str) -> bool:
+                try:
+                    row = cur.execute("SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (tid,)).fetchone()
+                    return row is not None
+                except Exception:
+                    return False
+            before = len(tracks)
+            tracks = [t for t in tracks if not _exists(str(t.get("id")))]
+            skipped = before - len(tracks)
+            if skipped > 0:
+                console.print(f"[cyan]Skipping {skipped} tracks already in library[/cyan]")
+            conn.close()
+        except Exception:
+            pass
+        if not tracks:
+            console.print("[green]✅ All tracks already present in library[/green]")
+            return 0
+        # Pre-calibrate format preference using the first track to avoid
+        # wasted attempts across concurrent downloads (especially fmt 29).
+        try:
+            if tracks and getattr(self.api_client, "format_preference", None) is None:
+                first_tid = str(tracks[0]["id"]) if isinstance(tracks[0], dict) else None
+                if first_tid:
+                    await self.api_client.calibrate_formats_for_track(first_tid)
+        except Exception:
+            pass
         sem = asyncio.Semaphore(max(1, int(concurrency or 1)))
 
         async def _wrapped(tid: str):
@@ -642,13 +857,38 @@ class QobuzPlugin(BasePlugin):
     ) -> tuple[int | None, str | None]:
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
+        # If no calibrated preference yet, try calibrating on this track id
+        if getattr(self.api_client, "format_preference", None) is None:
+            try:
+                await self.api_client.calibrate_formats_for_track(track_id)
+            except Exception:
+                pass
         key = (str(quality) if quality is not None else "").lower()
         try:
             if key.isdigit() and int(key) >= 4:
                 key = "max"
         except Exception:
             pass
-        tried = QUALITY_FALLBACKS.get(key, QUALITY_FALLBACKS.get("max"))
+        tried = list(QUALITY_FALLBACKS.get(key, QUALITY_FALLBACKS.get("max")))
+        # Optional override to skip 29 globally
+        try:
+            import os as _os
+            if (_os.getenv("FLA_QOBUZ_SKIP_29") or "").strip() == "1":
+                tried = [f for f in tried if f != 29]
+        except Exception:
+            pass
+        # If we have a calibrated preference, reorder to try those first
+        pref = getattr(self.api_client, "format_preference", None)
+        if pref:
+            ordered = [fmt for fmt in pref if fmt in tried]
+            tail = [fmt for fmt in tried if fmt not in ordered]
+            tried = ordered + tail
+        # Apply explicit preference toggle from CLI/env
+        if getattr(self, "_prefer_29", None) is not None:
+            if self._prefer_29 is False:
+                tried = [f for f in tried if f != 29]
+            elif self._prefer_29 is True and 29 in tried:
+                tried = [29] + [f for f in tried if f != 29]
         logger.debug(
             "Qobuz: trying format ids %s for track %s (quality=%s, allow_mp3=%s)",
             tried,
@@ -708,7 +948,11 @@ class QobuzPlugin(BasePlugin):
         await self.authenticate()
         # Set headers similar to Streamrip/qopy for better compatibility
         _headers = {
-            "User-Agent": "flaccid/0.1.0",
+            # Match a common desktop UA like qobuz-dl/qopy does
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) "
+                "Gecko/20100101 Firefox/83.0"
+            ),
             "X-App-Id": str(self.app_id or ""),
         }
         if self.auth_token:
@@ -738,6 +982,16 @@ class QobuzPlugin(BasePlugin):
             self._limiter,
             app_secrets=self.app_secrets,
         )
+        # Pre-select a working secret to avoid trying many per request
+        try:
+            await self.api_client.prime_secret()
+        except Exception:
+            pass
+        # Calibrate working formats once to speed up fallbacks
+        try:
+            await self.api_client.calibrate_formats()
+        except Exception:
+            pass
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
