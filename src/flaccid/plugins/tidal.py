@@ -7,7 +7,10 @@ flow, token refreshing, and API calls for track and album data.
 """
 
 import asyncio
+import shutil
+import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import requests
 from rich.console import Console
@@ -17,7 +20,16 @@ from ..core.auth import get_credentials, store_credentials
 from ..core.downloader import download_file
 from ..core.metadata import apply_metadata
 
-from ..core.api_config import TIDAL_API_URL
+from ..core.api_config import (
+    TIDAL_API_URL,
+    TIDAL_API_FALLBACK_URL,
+    TIDAL_API_ALT_URL,
+)
+import logging
+
+logger = logging.getLogger(__name__)
+from ..core.ratelimit import AsyncRateLimiter
+import os
 
 
 def _sanitize(name: str) -> str:
@@ -33,11 +45,20 @@ console = Console()
 class TidalPlugin(BasePlugin):
     """Implements download and metadata functionality for Tidal."""
 
-    def __init__(self):
+    def __init__(self, *, correlation_id: str | None = None, rps: int | None = None):
         self.client_id = None
         self.access_token = None
         self.refresh_token = None
         self.session = requests.Session()
+        self.correlation_id = correlation_id
+        self._rps = rps
+        _rps = (
+            self._rps
+            if self._rps is not None
+            else int(os.getenv("FLA_TIDAL_RPS", "5") or "5")
+        )
+        self._limiter = AsyncRateLimiter(_rps, 1.0)
+        self.country_code = os.getenv("FLA_TIDAL_COUNTRY", "US")
 
     async def authenticate(self):
         """
@@ -66,10 +87,17 @@ class TidalPlugin(BasePlugin):
             raise Exception(f"Tidal API check failed: {e}") from e
 
     async def _check_auth(self):
-        """Verifies the current access token by calling the /me endpoint, refreshing if needed."""
+        """Verifies access token via /v1/me; gracefully handles OpenAPI 404.
+
+        Some regions/accounts see 404 from openapi.tidal.com for /v1/me even
+        with a valid token. Treat 404 as a non-fatal OpenAPI unavailability and
+        proceed, since subsequent resource calls already implement host
+        fallbacks. Only 401 should trigger a refresh or failure.
+        """
         headers = dict(self.session.headers)
         headers["Accept"] = "application/vnd.tidal.v1+json"
         url = f"{TIDAL_API_URL}/v1/me"
+        await self._limiter.acquire()
         response = self.session.get(url, headers=headers, timeout=10)
 
         if response.status_code == 401:
@@ -79,10 +107,26 @@ class TidalPlugin(BasePlugin):
             await self._refresh_access_token()
             response = self.session.get(url, headers=headers, timeout=10)
 
+        if response.status_code == 404:
+            # OpenAPI path not available. Consider auth OK and continue.
+            logger.debug(
+                "tidal.authenticate openapi /me 404; proceeding with fallback hosts",
+                extra={"provider": "tidal", "corr": self.correlation_id},
+            )
+            return
+
         response.raise_for_status()
         user_data = response.json()
         console.print(
             f"[green]✅ Authenticated as Tidal user: {user_data.get('email')}[/green]"
+        )
+        logger.debug(
+            "tidal.authenticate ok",
+            extra={
+                "provider": "tidal",
+                "has_access": bool(self.access_token),
+                "corr": self.correlation_id,
+            },
         )
 
     async def _refresh_access_token(self):
@@ -114,104 +158,552 @@ class TidalPlugin(BasePlugin):
 
     async def _get_track_metadata(self, track_id: str) -> dict:
         """Fetches and standardizes metadata for a single Tidal track."""
-        url = f"{TIDAL_API_URL}/v1/tracks/{track_id}"
-        response = self.session.get(
-            url, headers={"Accept": "application/vnd.tidal.v1+json"}
+        base_hosts = [TIDAL_API_URL, TIDAL_API_FALLBACK_URL]
+        data = None
+        for base in base_hosts:
+            try:
+                url = f"{base}/v1/tracks/{track_id}"
+                await self._limiter.acquire()
+                resp = self.session.get(
+                    url,
+                    params={"countryCode": self.country_code},
+                    headers={"Accept": "application/vnd.tidal.v1+json"},
+                )
+                if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
+                    continue
+                resp.raise_for_status()
+                j = resp.json()
+                data = j.get("resource") if isinstance(j, dict) else None
+                if data is None and isinstance(j, dict):
+                    data = j
+                if data:
+                    break
+            except Exception:
+                continue
+        if not data:
+            raise Exception("Failed to fetch Tidal track metadata")
+        # Normalize artist(s)
+        artists = data.get("artists") or []
+        main_names = [a.get("name") for a in artists if (a or {}).get("type") == "MAIN"]
+        if not main_names:
+            main_names = [a.get("name") for a in artists if a.get("name")]
+        artist_name = ", ".join([n for n in main_names if n]) or data.get("artist", {}).get("name")
+
+        # Normalize album and album artist
+        album_info = data.get("album") or {}
+        album_title = album_info.get("title") or data.get("albumTitle")
+        album_artist = (
+            (album_info.get("artist") or {}).get("name")
+            or (data.get("albumArtist") or {}).get("name")
+            or artist_name
         )
-        response.raise_for_status()
-        data = response.json()["resource"]
+
+        # Track/disc numbers and totals
+        track_no = data.get("trackNumber") or data.get("track_number")
+        disc_no = data.get("volumeNumber") or data.get("discNumber")
+        track_total = album_info.get("numberOfTracks") or album_info.get("numberOfTracksOnMedia")
+        disc_total = album_info.get("numberOfVolumes") or album_info.get("numberOfMedia")
+
+        # Dates
+        release_date = album_info.get("releaseDate") or data.get("streamStartDate")
+
+        # Cover URL: handle OpenAPI imageCover and legacy cover string
+        cover_url = None
+        image_cover = (album_info.get("imageCover") or {}) if isinstance(album_info, dict) else {}
+        if isinstance(image_cover, dict):
+            large = (image_cover.get("large") or {})
+            cover_url = large.get("url") or image_cover.get("url")
+        if not cover_url:
+            cover_id = album_info.get("cover") or data.get("cover")
+            if cover_id and isinstance(cover_id, str):
+                # Convert dashed/hyphenated id into path segments
+                # e.g., 0b6898bf-a492-4ac7-8158-465bae8943fb -> 0b6898bf/a492/4ac7/8158/465bae8943fb
+                pathish = cover_id.replace("-", "/")
+                cover_url = f"https://resources.tidal.com/images/{pathish}/1280x1280.jpg"
+
         return {
-            "title": data["title"],
-            "artist": ", ".join(
-                [a["name"] for a in data["artists"] if a["type"] == "MAIN"]
-            ),
-            "album": data["album"]["title"],
-            "albumartist": data["album"]["artist"]["name"],
-            "tracknumber": data["trackNumber"],
-            "tracktotal": data["album"]["numberOfTracks"],
-            "discnumber": data["volumeNumber"],
-            "disctotal": data["album"]["numberOfVolumes"],
-            "date": data["album"]["releaseDate"],
+            "title": data.get("title"),
+            "artist": artist_name,
+            "album": album_title,
+            "albumartist": album_artist,
+            "tracknumber": track_no,
+            "tracktotal": track_total,
+            "discnumber": disc_no,
+            "disctotal": disc_total,
+            "date": release_date,
             "isrc": data.get("isrc"),
             "copyright": data.get("copyright"),
-            "cover_url": data["album"]["imageCover"]["large"]["url"],
+            "cover_url": cover_url,
         }
+
+    def _map_quality(self, quality: str) -> str:
+        q = (quality or "").strip().lower()
+        if q in {"hires", "hi-res", "hi_res", "hifi", "master"}:
+            # Prefer explicit lossless hi-res naming used by clients
+            return "HI_RES_LOSSLESS"
+        if q in {"lossless", "flac"}:
+            return "LOSSLESS"
+        if q in {"mp3", "high", "320", "aac"}:
+            return "HIGH"
+        if q in {"low", "96"}:
+            return "LOW"
+        return (quality or "").upper()
 
     async def _get_stream_url(self, track_id: str, quality: str = "LOSSLESS") -> str:
         """Gets the stream URL for a track (quality hint kept for compatibility)."""
-        url = f"{TIDAL_API_URL}/v1/tracks/{track_id}/playback-info"
-        params = {"audioquality": quality.upper(), "assetpresentation": "FULL"}
-        response = self.session.get(
-            url, params=params, headers={"Accept": "application/vnd.tidal.v1+json"}
-        )
-        response.raise_for_status()
-        return response.json()["track_streams"][0]["urls"][0]
+        q = self._map_quality(quality)
+        paths = [
+            f"/v1/tracks/{track_id}/playbackinfo",  # widely used by clients
+            f"/v1/tracks/{track_id}/playbackinfopostpaywall",
+            f"/v1/tracks/{track_id}/playback-info",
+        ]
+        # Try both common param casings across hosts
+        param_variants = [
+            # With explicit country
+            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM", "countryCode": self.country_code},
+            # Without country (matches tiddl behavior for playback)
+            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM"},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM"},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM"},
+        ]
+        # Prefer api.tidal.com first for playback
+        for base in [TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL, TIDAL_API_URL]:
+            for path in paths:
+                for params in param_variants:
+                    try:
+                        url = f"{base}{path}"
+                        await self._limiter.acquire()
+                        logger.debug(
+                            "tidal.playbackinfo.try",
+                            extra={
+                                "provider": "tidal",
+                                "url": url,
+                                "params": params,
+                                "corr": self.correlation_id,
+                            },
+                        )
+                        # Accept header: json for legacy hosts
+                        accept = (
+                            "application/json"
+                            if base in (TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL)
+                            else "application/vnd.tidal.v1+json"
+                        )
+                        response = self.session.get(
+                            url,
+                            params=params,
+                            headers={"Accept": accept},
+                        )
+                        if response.status_code == 404:
+                            continue
+                        response.raise_for_status()
+                        j = response.json()
+                        if isinstance(j, dict):
+                            # Legacy shape
+                            if "track_streams" in j:
+                                urls = (j.get("track_streams") or [{}])[0].get("urls") or []
+                                if urls:
+                                    return urls[0]
+                            if "urls" in j and isinstance(j["urls"], list) and j["urls"]:
+                                return j["urls"][0]
+                            # Newer shape with base64 manifest
+                            manifest_b64 = j.get("manifest")
+                            if manifest_b64:
+                                import base64, json as _json
 
-    async def download_track(self, track_id: str, quality: str, output_dir: Path):
+                                try:
+                                    decoded = base64.b64decode(manifest_b64).decode("utf-8", "ignore")
+                                    mj = _json.loads(decoded)
+                                    logger.debug(
+                                        "tidal.playbackinfo.manifest",
+                                        extra={
+                                            "provider": "tidal",
+                                            "mime": j.get("mimeType") or (mj.get("mimeType") if isinstance(mj, dict) else None),
+                                            "corr": self.correlation_id,
+                                        },
+                                    )
+                                    urls = (
+                                        (mj.get("urls") or [])
+                                        if isinstance(mj, dict)
+                                        else []
+                                    )
+                                    if not urls and isinstance(mj, dict):
+                                        urls = mj.get("streamingUrls") or []
+                                    if urls:
+                                        return urls[0]
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        logger.debug(
+                            "tidal.playbackinfo.error",
+                            extra={
+                                "provider": "tidal",
+                                "url": url,
+                                "error": str(e),
+                                "corr": self.correlation_id,
+                            },
+                        )
+                        continue
+        logger.warning(
+            "tidal.playbackinfo.no_url",
+            extra={"provider": "tidal", "track_id": track_id, "corr": self.correlation_id},
+        )
+        raise Exception("No playback URL found for track")
+
+    def _parse_track_manifest(self, stream_json: dict) -> tuple[list[str], str] | None:
+        """
+        Parse Tidal playback manifest to list of URLs and file extension.
+
+        Returns (urls, extension) or None if parsing fails.
+        """
+        try:
+            mime = stream_json.get("manifestMimeType") or stream_json.get("mimeType")
+            manifest_b64 = stream_json.get("manifest")
+            if not manifest_b64 or not mime:
+                return None
+            import base64
+            from xml.etree.ElementTree import fromstring as _fromstring
+
+            decoded = base64.b64decode(manifest_b64).decode("utf-8", "ignore")
+            audio_quality = stream_json.get("audioQuality") or ""
+
+            if mime == "application/vnd.tidal.bts":
+                # JSON manifest with urls + codecs
+                import json as _json
+
+                mj = _json.loads(decoded)
+                urls = (mj.get("urls") or []) if isinstance(mj, dict) else []
+                codecs = (mj.get("codecs") or "") if isinstance(mj, dict) else ""
+            elif mime == "application/dash+xml":
+                # Parse DASH MPD to build segment urls, similar to tiddl
+                NS = "{urn:mpeg:dash:schema:mpd:2011}"
+                tree = _fromstring(decoded)
+                rep = tree.find(f"{NS}Period/{NS}AdaptationSet/{NS}Representation")
+                if rep is None:
+                    return None
+                codecs = rep.get("codecs", "")
+                seg = rep.find(f"{NS}SegmentTemplate")
+                if seg is None:
+                    return None
+                media = seg.get("media")
+                if not media:
+                    return None
+                timeline = seg.findall(f"{NS}SegmentTimeline/{NS}S")
+                if not timeline:
+                    return None
+                total = 0
+                for el in timeline:
+                    total += 1
+                    r = el.get("r")
+                    if r is not None:
+                        total += int(r)
+                urls = [media.replace("$Number$", str(i)) for i in range(0, total + 1)]
+            else:
+                return None
+
+            # Extension decision (follow tiddl behavior)
+            ext = ".flac"
+            if codecs == "flac":
+                ext = ".flac"
+                if str(audio_quality).upper() == "HI_RES_LOSSLESS":
+                    ext = ".m4a"
+            elif str(codecs).startswith("mp4"):
+                ext = ".m4a"
+            return (urls, ext) if urls else None
+        except Exception as e:
+            logger.debug(
+                "tidal.parse_manifest.error",
+                extra={"error": str(e), "corr": self.correlation_id},
+            )
+            return None
+
+    async def _get_stream_info(self, track_id: str, quality: str = "LOSSLESS") -> tuple[list[str], str] | None:
+        """Return (urls, extension) for a track stream if available."""
+        q = self._map_quality(quality)
+        paths = [
+            f"/v1/tracks/{track_id}/playbackinfo",
+            f"/v1/tracks/{track_id}/playbackinfopostpaywall",
+            f"/v1/tracks/{track_id}/playback-info",
+        ]
+        param_variants = [
+            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM", "countryCode": self.country_code},
+            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM"},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM"},
+            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM"},
+        ]
+        for base in [TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL, TIDAL_API_URL]:
+            for path in paths:
+                for params in param_variants:
+                    try:
+                        url = f"{base}{path}"
+                        await self._limiter.acquire()
+                        accept = (
+                            "application/json"
+                            if base in (TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL)
+                            else "application/vnd.tidal.v1+json"
+                        )
+                        response = self.session.get(
+                            url,
+                            params=params,
+                            headers={"Accept": accept},
+                        )
+                        if response.status_code == 404:
+                            continue
+                        response.raise_for_status()
+                        j = response.json()
+                        # Direct URLs in legacy shapes
+                        if isinstance(j, dict):
+                            if "track_streams" in j:
+                                urls = (j.get("track_streams") or [{}])[0].get("urls") or []
+                                if urls:
+                                    ext = ".flac" if any("flac" in u for u in urls) else ".m4a"
+                                    return urls, ext
+                            if "urls" in j and isinstance(j["urls"], list) and j["urls"]:
+                                urls = j["urls"]
+                                ext = ".flac" if any("flac" in u for u in urls) else ".m4a"
+                                return urls, ext
+                            # Parse manifest shapes
+                            parsed = self._parse_track_manifest(j)
+                            if parsed:
+                                return parsed
+                    except Exception:
+                        continue
+        return None
+
+    async def download_track(self, track_id: str, quality: str, output_dir: Path, verify: bool = False):
         """Downloads a single track, including metadata and cover art."""
         if not self.access_token:
             await self.authenticate()
 
-        metadata = await self._get_track_metadata(track_id)
-        stream_url = await self._get_stream_url(track_id, quality)
-        # Try to detect if the stream is MP3 (lossy). Prefer HEAD to inspect
-        # content-type; fall back to quality flag.
-        try:
-            head = requests.head(stream_url, allow_redirects=True, timeout=5)
-            content_type = head.headers.get("Content-Type", "").lower()
-        except requests.RequestException:
-            content_type = ""
-
-        is_mp3 = (
-            "mpeg" in content_type or "mp3" in content_type or "mp3" in quality.lower()
+        logger.info(
+            "tidal.download_track.start",
+            extra={
+                "provider": "tidal",
+                "track_id": track_id,
+                "quality": quality,
+                "corr": self.correlation_id,
+            },
         )
-
-        if is_mp3:
-            console.print(
-                (
-                    f"[yellow]Only MP3 stream available for track {track_id}. "
-                    "Skipping download (FLAC-only mode)."
-                )
-            )
-            return
+        metadata = await self._get_track_metadata(track_id)
+        stream_info = await self._get_stream_info(track_id, quality)
+        if not stream_info:
+            raise Exception("No playable stream found")
+        urls, ext = stream_info
 
         track_no = int(metadata.get("tracknumber") or 0)
         safe_title = _sanitize(metadata["title"])
-        ext = ".flac"
         filename = f"{track_no:02d}. {safe_title}{ext}"
         filepath = output_dir / filename
 
-        await download_file(stream_url, filepath)
-        apply_metadata(filepath, metadata)
-        console.print(f"[green]✅ Downloaded '{metadata['title']}'[/green]")
+        # If single URL, just download; if multiple, enforce container-aware muxing for M4A.
+        if len(urls) == 1:
+            await download_file(urls[0], filepath)
+        else:
+            tmp_out = filepath.with_suffix(ext + ".part")
+            if ext.lower() == ".m4a":
+                ffmpeg_path = shutil.which("ffmpeg")
+                if not ffmpeg_path:
+                    raise Exception(
+                        "ffmpeg is required to mux ALAC segments into a valid M4A."
+                    )
+                try:
+                    with TemporaryDirectory(prefix="fla_tidal_") as tmpdir:
+                        seg_files: list[Path] = []
+                        with requests.Session() as s:
+                            for i, u in enumerate(urls):
+                                seg_path = Path(tmpdir) / f"seg_{i:05d}.mp4"
+                                r = s.get(u, timeout=120)
+                                r.raise_for_status()
+                                with open(seg_path, "wb") as sf:
+                                    sf.write(r.content)
+                                seg_files.append(seg_path)
+                        concat_path = Path(tmpdir) / "concat.txt"
+                        concat_path.write_text(
+                            "".join(f"file '{p.name}'\n" for p in seg_files),
+                            encoding="utf-8",
+                        )
+                        cmd = [
+                            ffmpeg_path,
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-f",
+                            "concat",
+                            "-safe",
+                            "0",
+                            "-i",
+                            concat_path.name,
+                            "-c",
+                            "copy",
+                            "-movflags",
+                            "+faststart",
+                            str(tmp_out),
+                        ]
+                        subprocess.run(cmd, check=True, cwd=tmpdir)
+                except Exception as e:
+                    logger.debug(
+                        "tidal.ffmpeg_concat.failed",
+                        extra={"error": str(e), "corr": self.correlation_id},
+                    )
+                    raise
+                Path(tmp_out).rename(filepath)
+            else:
+                # Non-M4A segmented content: best-effort append as before
+                with open(tmp_out, "wb") as f:
+                    with requests.Session() as s:
+                        for u in urls:
+                            r = s.get(u, timeout=60)
+                            r.raise_for_status()
+                            f.write(r.content)
+                Path(tmp_out).rename(filepath)
 
-    async def download_album(self, album_id: str, quality: str, output_dir: Path):
+        # Basic container validation for M4A; suggest ffmpeg if invalid
+        if filepath.suffix.lower() == ".m4a":
+            try:
+                from mutagen.mp4 import MP4  # type: ignore
+
+                _ = MP4(filepath)
+            except Exception:
+                console.print(
+                    "[yellow]Warning:[/yellow] Resulting M4A may not be container-valid.\n"
+                    "Install ffmpeg for a safe, bitstream copy mux (no re-encode)."
+                )
+        apply_metadata(filepath, metadata)
+        if verify:
+            try:
+                from ..core.verify import verify_media
+                info = verify_media(filepath)
+                if info is not None:
+                    console.print(
+                        f"[cyan]Verified:[/cyan] {info.get('codec')} {info.get('sample_rate')}Hz "
+                        f"{info.get('channels')}ch, duration {info.get('duration')}s"
+                    )
+                    # Simple expectation check based on extension
+                    codec = (info.get('codec') or '').lower()
+                    if filepath.suffix.lower() == '.m4a' and codec not in {'alac', 'aac', 'mp4a'}:
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .m4a output."
+                        )
+                    if filepath.suffix.lower() == '.flac' and codec != 'flac':
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .flac output."
+                        )
+            except Exception:
+                console.print("[yellow]Warning:[/yellow] ffprobe verification failed.")
+        console.print(f"[green]✅ Downloaded '{metadata['title']}'[/green]")
+        logger.info(
+            "tidal.download_track.done",
+            extra={
+                "provider": "tidal",
+                "track_id": track_id,
+                "path": str(filepath),
+                "corr": self.correlation_id,
+            },
+        )
+
+    async def download_album(
+        self, album_id: str, quality: str, output_dir: Path, *, concurrency: int = 4, verify: bool = False
+    ):
         """Downloads all tracks from a Tidal album concurrently."""
         if not self.access_token:
             await self.authenticate()
 
-        url = f"{TIDAL_API_URL}/v1/albums/{album_id}/tracks"
-        response = self.session.get(
-            url, headers={"Accept": "application/vnd.tidal.v1+json"}
-        )
-        response.raise_for_status()
-        tracks = response.json()["data"]
+        tracks = []
+        for base in [TIDAL_API_URL, TIDAL_API_FALLBACK_URL]:
+            try:
+                url = f"{base}/v1/albums/{album_id}/tracks"
+                await self._limiter.acquire()
+                response = self.session.get(
+                    url,
+                    params={"countryCode": self.country_code, "limit": 200},
+                    headers={"Accept": "application/vnd.tidal.v1+json"},
+                )
+                if response.status_code == 404:
+                    if base == TIDAL_API_FALLBACK_URL:
+                        import os as _os
 
+                        cc = _os.getenv("FLA_TIDAL_COUNTRY", "US")
+                        response = self.session.get(
+                            url,
+                            params={"countryCode": cc},
+                            headers={"Accept": "application/json"},
+                        )
+                        if response.status_code == 404:
+                            continue
+                    else:
+                        continue
+                response.raise_for_status()
+                j = response.json()
+                if isinstance(j, dict) and "data" in j:
+                    tracks = j["data"]
+                elif isinstance(j, dict) and "items" in j:
+                    tracks = j["items"]
+                elif isinstance(j, list):
+                    tracks = j
+                else:
+                    tracks = []
+                break
+            except Exception:
+                continue
         if not tracks:
             raise Exception("No tracks found for this album.")
 
-        first_track_meta = await self._get_track_metadata(tracks[0]["id"])
-        album_name = first_track_meta["album"].replace("/", "-").replace("\\", "-")
+        def _track_id(t: dict):
+            if isinstance(t, dict):
+                return t.get("id") or (t.get("item") or {}).get("id")
+            return None
+
+        first_id = _track_id(tracks[0])
+        meta_default = {"album": "Unknown Album", "albumartist": "Unknown Artist"}
+        first_track_meta = (
+            await self._get_track_metadata(str(first_id)) if first_id else meta_default
+        )
+        album_name = (
+            (first_track_meta.get("album") or "Unknown Album")
+            .replace("/", "-")
+            .replace("\\", "-")
+        )
         artist_name = (
-            first_track_meta["albumartist"].replace("/", "-").replace("\\", "-")
+            (first_track_meta.get("albumartist") or "Unknown Artist")
+            .replace("/", "-")
+            .replace("\\", "-")
         )
         album_dir = output_dir / f"{artist_name} - {album_name}"
         album_dir.mkdir(parents=True, exist_ok=True)
 
         console.print(f"Downloading {len(tracks)} tracks to [blue]{album_dir}[/blue]")
-        tasks = [
-            self.download_track(track["id"], quality, album_dir) for track in tracks
-        ]
-        await asyncio.gather(*tasks)
+        logger.info(
+            "tidal.download_album.start",
+            extra={
+                "provider": "tidal",
+                "album_id": album_id,
+                "tracks": len(tracks),
+                "quality": quality,
+                "corr": self.correlation_id,
+            },
+        )
+        import asyncio as _asyncio
+
+        sem = _asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+        async def _wrapped(tid: str):
+            async with sem:
+                await self.download_track(tid, quality, album_dir, verify)
+
+        ids = [_track_id(t) for t in tracks]
+        tasks = [_wrapped(tid) for tid in ids if tid]
+        await _asyncio.gather(*tasks)
 
         console.print("[green]✅ Album download complete![/green]")
+        logger.info(
+            "tidal.download_album.done",
+            extra={
+                "provider": "tidal",
+                "album_id": album_id,
+                "tracks": len(tracks),
+                "corr": self.correlation_id,
+            },
+        )

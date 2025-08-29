@@ -22,6 +22,7 @@ from .base import BasePlugin
 from ..core.auth import get_credentials
 from ..core.config import get_settings
 from ..core.downloader import download_file
+from ..core.ratelimit import AsyncRateLimiter
 from ..core.metadata import apply_metadata
 
 QOBUZ_API_URL = "https://www.qobuz.com/api.json/0.2"
@@ -82,17 +83,21 @@ class _QobuzApiClient:
         app_secret: str,
         auth_token: str,
         session: aiohttp.ClientSession,
+        limiter: AsyncRateLimiter | None = None,
     ):
         self.app_id = app_id
         self.app_secret = app_secret
         self.auth_token = auth_token
         self.session = session
+        self.limiter = limiter
 
     async def _request(
         self, endpoint: str, params: dict | None = None, signed: bool = False
     ) -> dict:
         if not self.session:
             raise RuntimeError("API client must be used within an active session.")
+        if self.limiter:
+            await self.limiter.acquire()
         full_url = f"{QOBUZ_API_URL}{endpoint}"
         request_params = {
             "app_id": self.app_id,
@@ -124,12 +129,14 @@ class _QobuzApiClient:
 
 
 class QobuzPlugin(BasePlugin):
-    def __init__(self):
+    def __init__(self, *, correlation_id: str | None = None, rps: int | None = None):
         self.app_id: str | None = None
         self.app_secret: str | None = None
         self.auth_token: str | None = None
         self.api_client: _QobuzApiClient | None = None
         self.session: aiohttp.ClientSession | None = None
+        self.correlation_id: str | None = correlation_id
+        self._rps: int | None = rps
 
     async def authenticate(self):
         console.print("Authenticating with Qobuz...")
@@ -145,6 +152,15 @@ class QobuzPlugin(BasePlugin):
                 "Qobuz credentials (app_id, app_secret, user_auth_token) not found. "
                 "Please run `fla config auto-qobuz` first."
             )
+        logger.debug(
+            "qobuz.authenticate ok",
+            extra={
+                "provider": "qobuz",
+                "has_app_id": bool(self.app_id),
+                "has_app_secret": bool(self.app_secret),
+                "has_token": bool(self.auth_token),
+            },
+        )
 
     def _normalize_metadata(self, track_data: dict) -> dict:
         album = track_data.get("album", {})
@@ -178,10 +194,24 @@ class QobuzPlugin(BasePlugin):
         return {k: v for k, v in fields.items() if v is not None}
 
     async def download_track(
-        self, track_id: str, quality: str, output_dir: Path, allow_mp3: bool = False
+        self,
+        track_id: str,
+        quality: str,
+        output_dir: Path,
+        allow_mp3: bool = False,
+        verify: bool = False,
     ):
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
+        logger.info(
+            "qobuz.download_track.start",
+            extra={
+                "provider": "qobuz",
+                "track_id": track_id,
+                "quality": quality,
+                "corr": self.correlation_id,
+            },
+        )
         track_data = await self.api_client.get_track(track_id)
         metadata = self._normalize_metadata(track_data)
         format_id, stream_url = await self._find_stream(track_id, quality, allow_mp3)
@@ -189,10 +219,27 @@ class QobuzPlugin(BasePlugin):
             console.print(
                 f"[red]Error for track {track_id}:[/red] No download URL found for any tried format id."
             )
+            logger.warning(
+                "qobuz.download_track.no_stream",
+                extra={
+                    "provider": "qobuz",
+                    "track_id": track_id,
+                    "corr": self.correlation_id,
+                },
+            )
             return
         if isinstance(format_id, int) and format_id < 6 and not allow_mp3:
             console.print(
                 f"[yellow]Selected format {format_id} for track {track_id} is MP3. Skipping download (use --allow-mp3 to permit MP3 fallbacks).[/yellow]"
+            )
+            logger.info(
+                "qobuz.download_track.skip_mp3",
+                extra={
+                    "provider": "qobuz",
+                    "track_id": track_id,
+                    "format_id": format_id,
+                    "corr": self.correlation_id,
+                },
             )
             return
         ext = ".flac"
@@ -201,10 +248,42 @@ class QobuzPlugin(BasePlugin):
         filepath.parent.mkdir(parents=True, exist_ok=True)
         await download_file(stream_url, filepath)
         apply_metadata(filepath, metadata)
+        if verify:
+            try:
+                from ..core.verify import verify_media
+
+                info = verify_media(filepath)
+                if info is not None:
+                    console.print(
+                        f"[cyan]Verified:[/cyan] {info.get('codec')} {info.get('sample_rate')}Hz "
+                        f"{info.get('channels')}ch, duration {info.get('duration')}s"
+                    )
+                    codec = (info.get('codec') or '').lower()
+                    if filepath.suffix.lower() == '.flac' and codec != 'flac':
+                        console.print(
+                            f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .flac output."
+                        )
+            except Exception as _e:
+                console.print("[yellow]Warning:[/yellow] ffprobe verification failed.")
         console.print(f"[green]\u2705 Downloaded '{metadata['title']}'[/green]")
+        logger.info(
+            "qobuz.download_track.done",
+            extra={
+                "provider": "qobuz",
+                "track_id": track_id,
+                "path": str(filepath),
+                "corr": self.correlation_id,
+            },
+        )
 
     async def download_album(
-        self, album_id: str, quality: str, output_dir: Path, allow_mp3: bool = False
+        self,
+        album_id: str,
+        quality: str,
+        output_dir: Path,
+        allow_mp3: bool = False,
+        concurrency: int = 4,
+        verify: bool = False,
     ):
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
@@ -213,12 +292,34 @@ class QobuzPlugin(BasePlugin):
         console.print(
             f"Downloading {len(tracks)} tracks from '{album_data['title']}'..."
         )
-        tasks = [
-            self.download_track(str(track["id"]), quality, output_dir, allow_mp3)
-            for track in tracks
-        ]
+        logger.info(
+            "qobuz.download_album.start",
+            extra={
+                "provider": "qobuz",
+                "album_id": album_id,
+                "tracks": len(tracks),
+                "quality": quality,
+                "corr": self.correlation_id,
+            },
+        )
+        sem = asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+        async def _wrapped(tid: str):
+            async with sem:
+                await self.download_track(tid, quality, output_dir, allow_mp3, verify)
+
+        tasks = [_wrapped(str(track["id"])) for track in tracks]
         await asyncio.gather(*tasks)
         console.print("[green]\u2705 Album download complete![/green]")
+        logger.info(
+            "qobuz.download_album.done",
+            extra={
+                "provider": "qobuz",
+                "album_id": album_id,
+                "tracks": len(tracks),
+                "corr": self.correlation_id,
+            },
+        )
 
     async def _find_stream(
         self, track_id: str, quality: str, allow_mp3: bool = False
@@ -254,17 +355,29 @@ class QobuzPlugin(BasePlugin):
             logger.debug("Qobuz: trying format_id=%s for track=%s", fmt, track_id)
             try:
                 stream_data = await self.api_client.get_file_url(track_id, fmt)
+                url = (stream_data or {}).get("url")
+                if url:
+                    logger.debug("Qobuz: format_id=%s yielded URL %s", fmt, url)
+                    console.print(
+                        f"[green]Qobuz: selected format_id={fmt} for track {track_id}[/green]"
+                    )
+                    return fmt, url
+                else:
+                    logger.debug(
+                        "Qobuz: format_id=%s returned no URL", fmt
+                    )
             except Exception as exc:
                 logger.debug("Qobuz: format_id=%s failed with exception: %s", fmt, exc)
                 console.print(f"Qobuz: format_id={fmt} failed: {exc}")
-                continue
-            url = stream_data.get("url")
-            if url:
-                logger.debug("Qobuz: format_id=%s yielded URL %s", fmt, url)
-                console.print(
-                    f"[green]Qobuz: selected format_id={fmt} for track {track_id}[/green]"
+                logger.debug(
+                    "qobuz.find_stream.try_fail",
+                    extra={
+                        "provider": "qobuz",
+                        "track_id": track_id,
+                        "format_id": fmt,
+                    },
                 )
-                return fmt, url
+                continue
         logger.debug(
             "Qobuz: no stream URL found for track %s with tried formats %s",
             track_id,
@@ -278,8 +391,17 @@ class QobuzPlugin(BasePlugin):
     async def __aenter__(self):
         await self.authenticate()
         self.session = aiohttp.ClientSession()
+        # Default: 8 requests/second unless overridden via env
+        import os
+
+        rps = (
+            self._rps
+            if self._rps is not None
+            else int(os.getenv("FLA_QOBUZ_RPS", "8") or "8")
+        )
+        self._limiter = AsyncRateLimiter(rps, 1.0)
         self.api_client = _QobuzApiClient(
-            self.app_id, self.app_secret, self.auth_token, self.session
+            self.app_id, self.app_secret, self.auth_token, self.session, self._limiter
         )
         return self
 

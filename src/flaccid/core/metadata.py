@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import requests
 from mutagen.flac import FLAC, Picture
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm  # type: ignore
 from mutagen.id3 import (
     APIC,
     ID3,
@@ -91,6 +92,60 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             pic.mime = "image/jpeg"
             audio.clear_pictures()
             audio.add_picture(pic)
+        audio.save()
+        return
+
+    if ext == ".m4a":
+        audio = MP4(file_path)
+        # MP4 atom mapping
+        text_map = {
+            "title": "\xa9nam",
+            "artist": "\xa9ART",
+            "album": "\xa9alb",
+            "albumartist": "aART",
+            "date": "\xa9day",
+            "genre": "\xa9gen",
+            "copyright": "\xa9cprt",
+        }
+        for key, atom in text_map.items():
+            if key in metadata and metadata[key] is not None:
+                audio.tags[atom] = [str(metadata[key])]
+
+        # Track/disc numbers
+        track = metadata.get("tracknumber")
+        track_total = metadata.get("tracktotal")
+        if track is not None or track_total is not None:
+            audio.tags["trkn"] = [
+                (int(track) if track is not None else 0, int(track_total) if track_total is not None else 0)
+            ]
+        disc = metadata.get("discnumber")
+        disc_total = metadata.get("disctotal")
+        if disc is not None or disc_total is not None:
+            audio.tags["disk"] = [
+                (int(disc) if disc is not None else 0, int(disc_total) if disc_total is not None else 0)
+            ]
+
+        # ISRC as iTunes freeform atom
+        if metadata.get("isrc"):
+            audio.tags["----:com.apple.iTunes:ISRC"] = [
+                MP4FreeForm(str(metadata["isrc"]).encode("utf-8"), dataformat=0)
+            ]
+        # UPC if present
+        if metadata.get("upc"):
+            audio.tags["----:com.apple.iTunes:UPC"] = [
+                MP4FreeForm(str(metadata["upc"]).encode("utf-8"), dataformat=0)
+            ]
+
+        # Cover art
+        cover_url = metadata.get("cover_url")
+        if cover_url and is_safe_url(cover_url):
+            image_data = _download_url_data(cover_url)
+            if image_data:
+                fmt = MP4Cover.FORMAT_JPEG
+                if image_data[:8] == b"\x89PNG\r\n\x1a\n":
+                    fmt = MP4Cover.FORMAT_PNG
+                audio.tags["covr"] = [MP4Cover(image_data, imageformat=fmt)]
+
         audio.save()
         return
 

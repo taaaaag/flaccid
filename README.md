@@ -25,6 +25,59 @@ Provider notes:
 - Qobuz: `docs/providers/QOBUZ.md`
 - Tidal: `docs/providers/TIDAL.md`
 
+Roadmap: see `docs/ROADMAP.md` for the current backlog and priorities.
+
+## Quick Start Cheatsheet
+
+- Configure services
+  - Tidal (device auth): `fla config auto-tidal`
+  - Qobuz (email/password + App ID, App Secret optional):
+    - Interactive: `fla config auto-qobuz --app-id YOUR_APP_ID`
+    - With secret: `fla config auto-qobuz --app-id YOUR_APP_ID --app-secret YOUR_APP_SECRET -e you@example.com -p 'password'`
+  - Verify: `fla config show --plain`
+
+- Set paths
+  - Show current: `fla config path`
+  - Set library: `fla config path --library ~/Music/FLACCID`
+  - Set downloads: `fla config path --download ~/Downloads/FLACCID`
+  - Set database: `fla config path --db ~/Music/FLACCID/flaccid.db`
+
+- Download (URLs are auto-detected; pass URL directly)
+  - Tidal track: `fla get https://tidal.com/browse/track/86902482`
+  - Tidal album: `fla get https://tidal.com/album/12345`
+  - Qobuz album: `fla get https://www.qobuz.com/us-en/album/some-album/0886447783652`
+
+- Download (service + ID flags)
+  - Tidal track: `fla get -t 86902482 --track`
+  - Tidal album: `fla get -t 12345 --album`
+  - Qobuz track: `fla get -q 12888812 --track`
+  - Qobuz album: `fla get -q 0886447783652 --album`
+
+- Helpful flags for `fla get`
+  - Allow MP3 fallback: `--allow-mp3`
+  - Concurrency (album downloads): `--concurrency 6`
+  - Dry-run (preview only): `--dry-run`
+  - Summary JSON: `--json`
+
+- Library
+  - Build index: `fla lib index`
+  - Dry-run (preview): `fla lib index --dry-run`
+  - Stats (table): `fla lib stats`
+  - Stats (JSON): `fla lib stats --json`
+  - Search: `fla lib search "Artist or Track" --limit 25`
+  - Optimize DB: `fla lib vacuum`
+
+- Playlists
+  - Match a playlist (JSON, M3U, CSV) to your library:
+    - `fla playlist match path/to/playlist.json` → writes `playlist.match.json`
+  - Export matched results to M3U:
+    - `fla playlist export playlist.match.json --format m3u`
+
+- Tagging (WIP; commands present, implementation pending)
+  - Qobuz: `fla tag qobuz --album-id 0886447783652 /path/to/AlbumFolder`
+  - Apple Music: `fla tag apple "Artist - Album" /path/to/AlbumFolder`
+  - Auto-tag (future): `fla tag auto /path/to/AlbumFolder --service qobuz`
+
 ## Configuration Precedence
 
 FLACCID loads settings from multiple layers; later items override earlier ones:

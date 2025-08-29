@@ -132,6 +132,9 @@ fla get -t 8690248 --album
 # Allow MP3 fallbacks (otherwise MP3-only streams are skipped)
 fla get -q 12888812 --track --allow-mp3
 
+# Concurrency (album downloads)
+fla get -q 0886447783652 --album --concurrency 6
+
 # Summary JSON output
 fla get -q 12888812 --track --json
 ```
@@ -195,4 +198,33 @@ fla lib stats --json
 
 ```bash
 fla lib vacuum
+
+### Search (FTS-backed when available)
+
+- Simple search across title/artist/album. Uses SQLite FTS5 if the Python build supports it; otherwise falls back to a LIKE search.
+
+```bash
+fla lib search "search terms" --limit 25           # table
+fla lib search "search terms" --limit 25 --json    # JSON output
+```
+
+If your Python/SQLite lacks FTS5 support, consider installing a Python build with FTS5 enabled for better ranking and performance.
+
+### Shell Completion
+
+Enable completion for your shell (bash/zsh/fish/powershell).
+
+- Quick pointer: `fla completion`
+- Bash (temporary): `eval "$(_FLA_COMPLETE=bash_source fla)"`
+- Zsh (temporary):  `eval "$(_FLA_COMPLETE=zsh_source fla)"`
+- Fish:             `_FLA_COMPLETE=fish_source fla | source`
+
+Persist by adding the eval line to your shell config file (e.g., `~/.bashrc` or `~/.zshrc`).
+
+## Shell Completion
+
+Enable completion for your shell (bash/zsh/fish/powershell). See:
+
+- Run: `fla completion` for a quick pointer
+- Details: docs/USAGE.md#shell-completion
 ```

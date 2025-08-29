@@ -11,6 +11,7 @@ import asyncio
 from pathlib import Path
 
 import aiohttp
+import logging
 import os
 from rich.progress import (
     BarColumn,
@@ -20,8 +21,16 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+logger = logging.getLogger(__name__)
 
-async def download_file(url: str, dest_path: Path, *, checksum: str | None = None, checksum_algo: str = "sha1"):
+
+async def download_file(
+    url: str,
+    dest_path: Path,
+    *,
+    checksum: str | None = None,
+    checksum_algo: str = "sha1",
+):
     """Download a file from a URL to a destination path with a progress bar.
 
     Args:
@@ -56,7 +65,9 @@ async def download_file(url: str, dest_path: Path, *, checksum: str | None = Non
                 "•",
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task(f"Downloading {dest_path.name}", total=total_size)
+                task = progress.add_task(
+                    f"Downloading {dest_path.name}", total=total_size
+                )
 
                 # Download the file in chunks and update the progress bar
                 # Append if resuming
@@ -64,12 +75,25 @@ async def download_file(url: str, dest_path: Path, *, checksum: str | None = Non
                 with open(temp_path, mode) as f:
                     if resume_pos:
                         progress.update(task, advance=resume_pos)
+                        logger.info(
+                            "downloader.resume",
+                            extra={
+                                "url": url,
+                                "dest": str(dest_path),
+                                "resume_pos": resume_pos,
+                                "total": total_size,
+                            },
+                        )
                     async for chunk in response.content.iter_chunked(8192):
                         if chunk:  # filter out keep-alive new chunks
                             f.write(chunk)
                             progress.update(task, advance=len(chunk))
                 # Move temp to final destination
                 os.replace(temp_path, dest_path)
+                logger.info(
+                    "downloader.done",
+                    extra={"url": url, "dest": str(dest_path), "bytes": total_size},
+                )
 
     # Optional integrity check (best-effort)
     if checksum:
@@ -82,6 +106,14 @@ async def download_file(url: str, dest_path: Path, *, checksum: str | None = Non
                     h.update(chunk)
             if h.hexdigest().lower() != checksum.lower():
                 raise IOError("Checksum mismatch")
-        except Exception:
+        except Exception as e:
             # Do not raise by default; callers may verify separately
-            pass
+            logger.warning(
+                "downloader.checksum_mismatch",
+                extra={
+                    "url": url,
+                    "dest": str(dest_path),
+                    "algo": checksum_algo,
+                    "error": str(e),
+                },
+            )

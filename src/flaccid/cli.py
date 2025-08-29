@@ -28,6 +28,7 @@ app = typer.Typer(
 
 # Import and register command groups from the `commands` package
 from .commands import config, get, lib, tag, playlist
+from .core.logging_util import setup_logging
 
 app.add_typer(
     config.app,
@@ -52,6 +53,19 @@ app.add_typer(
 )
 
 
+@app.command("completion")
+def completion(
+    shell: str = typer.Option(
+        "auto",
+        "--shell",
+        help="Target shell: bash|zsh|fish|powershell|auto",
+    )
+):
+    """Print instructions to enable shell completion for your shell."""
+    console.print("Shell completion is powered by Click.")
+    console.print("See docs/USAGE.md#shell-completion for per-shell instructions.")
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -61,10 +75,12 @@ def main(
         help="Show the application version and exit.",
         is_eager=True,  # Process this before any command
     ),
-    verbose: bool = typer.Option(
-        None,
-        "--verbose",
-        help="Enable verbose DEBUG-level logging.",
+    verbose: bool = typer.Option(None, "--verbose", help="Enable DEBUG-level logging."),
+    quiet: bool = typer.Option(
+        None, "--quiet", help="Reduce logging to warnings and errors."
+    ),
+    json_logs: bool = typer.Option(
+        False, "--json-logs", help="Emit logs as JSON lines to stdout."
     ),
 ):
     """
@@ -76,13 +92,12 @@ def main(
         console.print(f"FLACCID v{__version__}")
         raise typer.Exit()
 
+    # Configure logging once, early
+    setup_logging(json_logs=json_logs, verbose=bool(verbose), quiet=bool(quiet))
     if verbose:
-        # Configure logging to show all debug messages
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="%(asctime)s - %(levelname)s - %(message)s",
-        )
-        console.print("[bold yellow]Verbose logging enabled.[/bold yellow]")
+        console.print("[yellow]Verbose logging enabled.[/yellow]")
+    if quiet:
+        console.print("[yellow]Quiet mode: warnings and errors only.[/yellow]")
 
 
 def cli():

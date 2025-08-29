@@ -120,6 +120,11 @@ def lib_index(
         "--rebuild",
         help="Delete the existing database and rebuild from scratch.",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview files to index without writing to the database.",
+    ),
 ):
     """
     Scan a directory and store metadata for all audio files in the database.
@@ -142,6 +147,16 @@ def lib_index(
     init_db(conn)
 
     files_to_index = scan_library_paths(scan_path)
+    if dry_run:
+        console.print(
+            f"[cyan]Dry-run:[/cyan] Would index {len(files_to_index)} files from {scan_path}"
+        )
+        for p in files_to_index[:50]:
+            console.print(f"  - {p}")
+        if len(files_to_index) > 50:
+            console.print(f"  ... and {len(files_to_index)-50} more")
+        conn.close()
+        return
     if not files_to_index:
         conn.close()
         raise typer.Exit("No audio files found to index.")
@@ -198,3 +213,57 @@ def lib_vacuum():
         conn.execute("VACUUM")
         conn.execute("ANALYZE")
     console.print("[green]✅ Database optimized.[/green]")
+
+
+@app.command("search")
+def lib_search(
+    query: str = typer.Argument(..., help="Search text for title/artist/album"),
+    limit: int = typer.Option(25, "--limit", help="Max results to return"),
+    json_output: bool = typer.Option(False, "--json", help="Output JSON results"),
+):
+    """Search the library using FTS (if available), else fallback to LIKE.
+
+    Matches title OR artist OR album.
+    """
+    settings = get_settings()
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
+    if not db_path.exists():
+        raise typer.Exit("No database found. Run `fla lib index` first.")
+    with sqlite3.connect(db_path) as conn:
+        has_fts = bool(
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='tracks_fts'"
+            ).fetchone()
+        )
+        if has_fts:
+            sql = (
+                "SELECT t.title, t.artist, t.album, t.path, bm25(tracks_fts) as rank "
+                "FROM tracks_fts JOIN tracks t ON t.id = tracks_fts.rowid "
+                "WHERE tracks_fts MATCH ? ORDER BY rank LIMIT ?"
+            )
+            rows = conn.execute(sql, (query, limit)).fetchall()
+        else:
+            like = f"%{query}%"
+            sql = (
+                "SELECT title, artist, album, path FROM tracks "
+                "WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? LIMIT ?"
+            )
+            rows = conn.execute(sql, (like, like, like, limit)).fetchall()
+    results = [
+        {"title": r[0], "artist": r[1], "album": r[2], "path": r[3]} for r in rows
+    ]
+    if json_output:
+        typer.echo(
+            json.dumps({"query": query, "count": len(results), "results": results})
+        )
+        return
+    table = Table(title=f"Search results for '{query}'")
+    table.add_column("Title", style="cyan")
+    table.add_column("Artist", style="magenta")
+    table.add_column("Album", style="green")
+    table.add_column("Path", style="dim")
+    for r in results:
+        table.add_row(
+            r["title"] or "", r["artist"] or "", r["album"] or "", r["path"] or ""
+        )
+    console.print(table)

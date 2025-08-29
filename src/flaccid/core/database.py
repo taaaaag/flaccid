@@ -104,6 +104,40 @@ def init_db(conn: sqlite3.Connection):
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_path ON tracks (path)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_album ON tracks (album)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_artist ON tracks (artist)")
+
+        # Optional FTS5 index for fast search over title/artist/album.
+        # Use content-based FTS so rows stay in sync with triggers.
+        try:
+            cur.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
+                    title, artist, album,
+                    content='tracks', content_rowid='id'
+                )
+                """
+            )
+            # Triggers to keep FTS in sync
+            cur.executescript(
+                """
+                CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
+                    INSERT INTO tracks_fts(rowid, title, artist, album)
+                    VALUES (new.id, new.title, new.artist, new.album);
+                END;
+                CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
+                    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+                    VALUES ('delete', old.id, old.title, old.artist, old.album);
+                END;
+                CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
+                    INSERT INTO tracks_fts(tracks_fts, rowid, title, artist, album)
+                    VALUES ('delete', old.id, old.title, old.artist, old.album);
+                    INSERT INTO tracks_fts(rowid, title, artist, album)
+                    VALUES (new.id, new.title, new.artist, new.album);
+                END;
+                """
+            )
+        except sqlite3.Error:
+            # FTS5 may be unavailable; continue without it
+            pass
         conn.commit()
     except sqlite3.Error as e:
         console.print(f"[red]Database initialization error: {e}[/red]")

@@ -31,19 +31,25 @@ async def _download_qobuz(
     quality: str = "max",
     output_dir: Optional[Path] = None,
     allow_mp3: bool = False,
+    concurrency: int = 4,
+    verify: bool = False,
+    correlation_id: Optional[str] = None,
+    qobuz_rps: Optional[int] = None,
 ):
     """Internal function to download from Qobuz."""
     # Quality fallback for Qobuz: hires -> lossless -> mp3
     quality_fallback = ["hires", "lossless", "mp3"] if quality == "max" else [quality]
 
     try:
-        async with QobuzPlugin() as plugin:
+        async with QobuzPlugin(correlation_id=correlation_id, rps=qobuz_rps) as plugin:
             for q in quality_fallback:
                 try:
                     if album_id:
-                        await plugin.download_album(album_id, q, output_dir, allow_mp3)
+                        await plugin.download_album(
+                            album_id, q, output_dir, allow_mp3, concurrency, verify=verify
+                        )
                     else:
-                        await plugin.download_track(track_id, q, output_dir, allow_mp3)
+                        await plugin.download_track(track_id, q, output_dir, allow_mp3, verify=verify)
                     console.print(f"[green]✅ Downloaded in {q} quality[/green]")
                     return
                 except Exception as e:
@@ -64,18 +70,24 @@ async def _download_tidal(
     quality: str = "max",
     output_dir: Optional[Path] = None,
     allow_mp3: bool = False,
+    concurrency: int = 4,
+    correlation_id: Optional[str] = None,
+    tidal_rps: Optional[int] = None,
+    verify: bool = False,
 ):
     """Internal function to download from Tidal."""
     # Quality fallback for Tidal: hires -> lossless -> mp3
     quality_fallback = ["hires", "lossless", "mp3"] if quality == "max" else [quality]
     try:
-        plugin = TidalPlugin()
+        plugin = TidalPlugin(correlation_id=correlation_id, rps=tidal_rps)
         for q in quality_fallback:
             try:
                 if album_id:
-                    await plugin.download_album(album_id, q, output_dir, allow_mp3)
+                    await plugin.download_album(
+                        album_id, q, output_dir, concurrency=concurrency, verify=verify
+                    )
                 else:
-                    await plugin.download_track(track_id, q, output_dir, allow_mp3)
+                    await plugin.download_track(track_id, q, output_dir, verify=verify)
                 console.print(f"[green]✅ Downloaded in {q} quality[/green]")
                 return
             except Exception as e:
@@ -90,7 +102,15 @@ async def _download_tidal(
         raise typer.Exit(f"[red]❌ Tidal download failed:[/red] {e}")
 
 
-async def _download_from_url(url: str, output_dir: Path, allow_mp3: bool = False):
+async def _download_from_url(
+    url: str,
+    output_dir: Path,
+    allow_mp3: bool = False,
+    correlation_id: Optional[str] = None,
+    qobuz_rps: Optional[int] = None,
+    tidal_rps: Optional[int] = None,
+    verify: bool = False,
+):
     """Auto-detect service from URL and download."""
     console.print(f"🔍 Detecting service from URL: [blue]{url}[/blue]")
 
@@ -104,6 +124,8 @@ async def _download_from_url(url: str, output_dir: Path, allow_mp3: bool = False
                 quality="max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
+                correlation_id=correlation_id,
+                tidal_rps=tidal_rps,
             )
         else:
             await _download_tidal(
@@ -111,6 +133,8 @@ async def _download_from_url(url: str, output_dir: Path, allow_mp3: bool = False
                 quality="max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
+                correlation_id=correlation_id,
+                tidal_rps=tidal_rps,
             )
         return
 
@@ -128,6 +152,8 @@ async def _download_from_url(url: str, output_dir: Path, allow_mp3: bool = False
                 quality="max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
+                correlation_id=correlation_id,
+                qobuz_rps=qobuz_rps,
             )
         else:
             await _download_qobuz(
@@ -135,6 +161,8 @@ async def _download_from_url(url: str, output_dir: Path, allow_mp3: bool = False
                 quality="max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
+                correlation_id=correlation_id,
+                qobuz_rps=qobuz_rps,
             )
         return
 
@@ -151,6 +179,11 @@ async def get_main(
     playlist: bool,
     artist: bool,
     allow_mp3: bool = False,
+    dry_run: bool = False,
+    concurrency: int = 4,
+    correlation_id: Optional[str] = None,
+    qobuz_rps: Optional[int] = None,
+    tidal_rps: Optional[int] = None,
 ):
     """Internal function to handle the main download logic."""
     settings = get_settings()
@@ -167,45 +200,82 @@ async def get_main(
 
     # If it's a URL, auto-detect and download
     if _is_url(input_value):
-        await _download_from_url(input_value, output_dir, allow_mp3)
-        return
+        if dry_run:
+            console.print(
+                f"[cyan]Dry-run:[/cyan] Would download from URL: {input_value}"
+            )
+        else:
+            await _download_from_url(
+                input_value,
+                output_dir,
+                allow_mp3,
+                correlation_id,
+                qobuz_rps,
+                tidal_rps,
+                verify,
+            )
+            return
 
     # Handle service-specific IDs
     if qobuz_id:
-        if album:
-            await _download_qobuz(
-                album_id=qobuz_id,
-                quality="max",
-                output_dir=output_dir,
-                allow_mp3=allow_mp3,
+        if dry_run:
+            console.print(
+                f"[cyan]Dry-run:[/cyan] Would download Qobuz {'album' if album else 'track'} {qobuz_id}"
             )
         else:
-            # Default to track if no explicit type provided
-            await _download_qobuz(
-                track_id=qobuz_id,
-                quality="max",
-                output_dir=output_dir,
-                allow_mp3=allow_mp3,
-            )
-        return
+            if album:
+                await _download_qobuz(
+                    album_id=qobuz_id,
+                    quality="max",
+                    output_dir=output_dir,
+                    allow_mp3=allow_mp3,
+                    concurrency=concurrency,
+                    correlation_id=correlation_id,
+                    qobuz_rps=qobuz_rps,
+                    verify=verify,
+                )
+            else:
+                # Default to track if no explicit type provided
+                await _download_qobuz(
+                    track_id=qobuz_id,
+                    quality="max",
+                    output_dir=output_dir,
+                    allow_mp3=allow_mp3,
+                    correlation_id=correlation_id,
+                    qobuz_rps=qobuz_rps,
+                    verify=verify,
+                )
+            return
 
     if tidal_id:
-        if album:
-            await _download_tidal(
-                album_id=tidal_id,
-                quality="max",
-                output_dir=output_dir,
-                allow_mp3=allow_mp3,
+        if dry_run:
+            console.print(
+                f"[cyan]Dry-run:[/cyan] Would download Tidal {'album' if album else 'track'} {tidal_id}"
             )
         else:
-            # Default to track if no explicit type provided
-            await _download_tidal(
-                track_id=tidal_id,
-                quality="max",
-                output_dir=output_dir,
-                allow_mp3=allow_mp3,
-            )
-        return
+            if album:
+                await _download_tidal(
+                    album_id=tidal_id,
+                    quality="max",
+                    output_dir=output_dir,
+                    allow_mp3=allow_mp3,
+                    concurrency=concurrency,
+                    correlation_id=correlation_id,
+                    tidal_rps=tidal_rps,
+                    verify=verify,
+                )
+            else:
+                # Default to track if no explicit type provided
+                await _download_tidal(
+                    track_id=tidal_id,
+                    quality="max",
+                    output_dir=output_dir,
+                    allow_mp3=allow_mp3,
+                    correlation_id=correlation_id,
+                    tidal_rps=tidal_rps,
+                    verify=verify,
+                )
+            return
 
     # If no service flags but we have an input_value, try to guess
     if input_value:
@@ -219,9 +289,19 @@ async def get_main(
         else:
             # Maybe it's a URL without http://
             try:
-                await _download_from_url(
-                    "https://" + input_value, output_dir, allow_mp3
-                )
+                if dry_run:
+                    console.print(
+                        f"[cyan]Dry-run:[/cyan] Would download from URL: https://{input_value}"
+                    )
+                else:
+                    await _download_from_url(
+                        "https://" + input_value,
+                        output_dir,
+                        allow_mp3,
+                        correlation_id,
+                        qobuz_rps,
+                        tidal_rps,
+                    )
                 return
             except Exception:
                 pass
@@ -275,8 +355,25 @@ def main(
         "--allow-mp3",
         help="Allow MP3 (lossy) fallbacks when no FLAC is available.",
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview download actions without downloading"
+    ),
     json_output: bool = typer.Option(
         False, "--json", help="Output a summary JSON after completion"
+    ),
+    concurrency: int = typer.Option(
+        4, "--concurrency", help="Max concurrent downloads for album tasks"
+    ),
+    verify: bool = typer.Option(
+        False,
+        "--verify",
+        help="Run ffprobe on output to verify codec, duration, and container.",
+    ),
+    qobuz_rps: Optional[int] = typer.Option(
+        None, "--qobuz-rps", help="Qobuz API rate limit (requests per second)"
+    ),
+    tidal_rps: Optional[int] = typer.Option(
+        None, "--tidal-rps", help="Tidal API rate limit (requests per second)"
     ),
 ):
     """
@@ -295,6 +392,9 @@ def main(
         raise typer.Exit(0)
 
     # Run the async function
+    import uuid as _uuid
+
+    corr = _uuid.uuid4().hex
     asyncio.run(
         get_main(
             input_value or "",
@@ -305,6 +405,12 @@ def main(
             playlist,
             artist,
             allow_mp3,
+            dry_run,
+            concurrency,
+            corr,
+            qobuz_rps,
+            tidal_rps,
+            verify,
         )
     )
     if json_output:
@@ -313,11 +419,16 @@ def main(
             "service": (
                 "qobuz"
                 if qobuz_id or (input_value or "").find("qobuz") != -1
-                else ("tidal" if tidal_id or (input_value or "").find("tidal") != -1 else None)
+                else (
+                    "tidal"
+                    if tidal_id or (input_value or "").find("tidal") != -1
+                    else None
+                )
             ),
             "mode": "album" if album else ("track" if track else None),
             "allow_mp3": allow_mp3,
             "status": "ok",
+            "corr": corr,
         }
         import json as _json
 
