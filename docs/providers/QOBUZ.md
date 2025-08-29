@@ -35,6 +35,18 @@ Notes:
 - Auto-fetch from web bundle (no external tools):
   - `fla config fetch-qobuz-secrets` scrapes play.qobuz.com’s bundle to discover `app_id` and a set of valid `secrets`, then stores them in settings (and caches the first secret in keyring). This mirrors what community tools do programmatically.
 
+### Runtime Behavior
+
+- Default stream format order skips format 29 to avoid region/account stalls. Use `-29`/`--try-29` on `fla get` to attempt 29 first.
+- Environment tuning:
+  - `FLA_QOBUZ_SKIP_29=1` – force skip of format 29 globally
+  - `FLA_QOBUZ_HTTP_TIMEOUT=6` – per-request HTTP timeout (seconds)
+  - `FLA_QOBUZ_RPS=8` – request rate limit (requests per second)
+
+### Duplicate Prevention
+
+- `fla get` skips tracks already present in the library database (by `qobuz_id`).
+
 - Using environment variables (good for CI/automation):
   - `FLA_QOBUZ_APP_ID`
   - `FLA_QOBUZ_APP_SECRET` (optional)

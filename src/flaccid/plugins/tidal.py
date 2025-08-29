@@ -236,6 +236,46 @@ class TidalPlugin(BasePlugin):
             "cover_url": cover_url,
         }
 
+    async def search_track_by_isrc(self, isrc: str) -> dict | None:
+        """Search Tidal for a track by ISRC and return normalized metadata.
+
+        Tries common hosts and shapes. Returns None if not found.
+        """
+        hosts = [TIDAL_API_URL, TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL]
+        params_variants = [
+            {"query": isrc, "types": "TRACKS", "limit": 1, "countryCode": self.country_code},
+            {"query": isrc, "types": "TRACKS", "limit": 1},
+        ]
+        headers = {"Accept": "application/vnd.tidal.v1+json"}
+        for base in hosts:
+            for params in params_variants:
+                try:
+                    await self._limiter.acquire()
+                    resp = self.session.get(f"{base}/v1/search", params=params, headers=headers, timeout=10)
+                    if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
+                        continue
+                    resp.raise_for_status()
+                    j = resp.json() or {}
+                    # Try common shapes
+                    items = None
+                    if isinstance(j, dict):
+                        tracks_obj = j.get("tracks") or j.get("items") or j.get("data")
+                        if isinstance(tracks_obj, dict):
+                            items = tracks_obj.get("items")
+                        elif isinstance(tracks_obj, list):
+                            items = tracks_obj
+                    if not items:
+                        continue
+                    first = items[0]
+                    tid = None
+                    if isinstance(first, dict):
+                        tid = first.get("id") or (first.get("resource") or {}).get("id")
+                    if tid:
+                        return await self._get_track_metadata(str(tid))
+                except Exception:
+                    continue
+        return None
+
     def _map_quality(self, quality: str) -> str:
         q = (quality or "").strip().lower()
         if q in {"hires", "hi-res", "hi_res", "hifi", "master"}:

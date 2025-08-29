@@ -1,0 +1,7 @@
+# Netscape HTTP Cookie File
+# This is a template - replace the values with your actual cookies from Safari
+# Format: domain	flag	path	secure	expiration	name	value
+
+.music.apple.com	TRUE	/	TRUE	1234567890	media-user-token	YOUR_MEDIA_USER_TOKEN_HERE
+.apple.com	TRUE	/	TRUE	1234567890	myacinfo	YOUR_MYACINFO_TOKEN_HERE
+.apple.com	TRUE	/	TRUE	1234567890	itspod	YOUR_ITSPOD_VALUE_HERE

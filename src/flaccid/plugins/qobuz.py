@@ -306,6 +306,17 @@ class _QobuzApiClient:
             response.raise_for_status()
             return await response.json()
 
+    async def search_track(self, query: str, *, limit: int = 5, offset: int = 0) -> dict:
+        if not self.session:
+            raise RuntimeError("API client must be used within an active session.")
+        if self.limiter:
+            await self.limiter.acquire()
+        full_url = f"{QOBUZ_API_URL}/track/search"
+        params = {"query": query, "limit": limit, "offset": offset}
+        async with self.session.get(full_url, params=params) as response:
+            response.raise_for_status()
+            return await response.json()
+
 
 def _load_streamrip_config() -> tuple[Optional[str], list[str]]:
     """Load app_id and secrets from Streamrip config if present.

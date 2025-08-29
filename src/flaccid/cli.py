@@ -27,7 +27,7 @@ app = typer.Typer(
 )
 
 # Import and register command groups from the `commands` package
-from .commands import config, get, lib, tag, playlist
+from .commands import config, get, lib, tag, playlist, search
 from .core.logging_util import setup_logging
 
 app.add_typer(
@@ -50,6 +50,9 @@ app.add_typer(
 )
 app.add_typer(
     tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources."
+)
+app.add_typer(
+    search.app, name="search", help="🔎 Search providers for albums or tracks."
 )
 
 

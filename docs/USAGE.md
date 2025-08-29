@@ -135,6 +135,9 @@ fla get -q 12888812 --track --allow-mp3
 # Concurrency (album downloads)
 fla get -q 0886447783652 --album --concurrency 6
 
+# Qobuz: try 29 first (default skips 29)
+fla get https://open.qobuz.com/album/i47v490x4a0xb -29
+
 # Summary JSON output
 fla get -q 12888812 --track --json
 ```
@@ -147,6 +150,7 @@ fla get -q 12888812 --track --json
   - `hires` → [29, 27, 19, 7, 6, 5]
   - `max` (default) → [29, 27, 19, 7, 6, 5]
 - By default, MP3 formats are skipped. Use `--allow-mp3` to permit MP3 downloads.
+- Qobuz format 29 (highest) is skipped by default to avoid stalls; use `-29`/`--try-29` to try 29 first. Env override: `FLA_QOBUZ_SKIP_29=1`.
 
 ### Output Location
 
@@ -167,6 +171,45 @@ If you paste a URL without `http(s)://`, FLACCID will try adding `https://` auto
 
 ---
 
+## Search (`fla search`)
+
+Query providers for albums/tracks by free text, ISRC, or UPC.
+
+```bash
+# Qobuz (track)
+fla search qobuz "USAT21300959" --type track --json
+
+# Tidal (album)
+fla search tidal "Kind of Blue" --type album --limit 5
+
+# Apple (track)
+fla search apple "Stairway to Heaven" --type track
+```
+
+Outputs a table by default; pass `--json` for machine-readable results.
+
+---
+
+## Tagging (`fla tag`)
+
+Update tags on existing files using provider metadata or local fixes.
+
+```bash
+# Fix verbose ARTIST by using ALBUMARTIST
+fla tag fix-artist "/path/to/Album"
+
+# Tag a local folder from a known Qobuz album
+fla tag qobuz -a i47v490x4a0xb "/path/to/Album"
+
+# Cascade metadata: tidal → apple → qobuz → musicbrainz
+fla tag cascade "/path/to/Album" --order "tidal,apple,qobuz,mb" --fill-missing
+```
+
+- `--fill-missing`: only fills empty tags; does not overwrite non-empty values.
+- Apple mapping includes composer, disc/track numbers, totals, release date, and upscaled artwork.
+
+---
+
 ## Troubleshooting
 
 - Keyring not working / prompts for secrets:
@@ -183,6 +226,11 @@ If you paste a URL without `http(s)://`, FLACCID will try adding `https://` auto
 - No files indexed after `fla lib index`:
   - Confirm your `library_path` is correct with `fla config path`.
   - Ensure files have readable tags (ID3 or Vorbis) or valid extensions.
+
+- Qobuz hangs or slow on format 29:
+  - Default behavior skips 29; use `-29` to try 29 first.
+  - Tune HTTP timeouts: `export FLA_QOBUZ_HTTP_TIMEOUT=6`.
+  - Adjust request rate: `export FLA_QOBUZ_RPS=8`.
 
 ---
 
@@ -208,6 +256,25 @@ fla lib vacuum
   - MP4/M4A: freeform atoms `----:com.apple.iTunes:<NAME>`.
 - The library indexer reads these tags and stores them in the database (`tracks.qobuz_id`, `tracks.tidal_id`).
 - ISRC remains the best cross-service key where present; FLACCID also saves ISRC to aid matching.
+
+### Enrichment
+
+- MusicBrainz (post-fact via ISRC):
+
+```bash
+fla lib enrich-mb --limit 500
+```
+
+Adds `mb:recording` to tracks and album-level IDs (`mb:release`, `mb:release-group`, `upc`).
+
+### Duplicate Prevention
+
+- `fla get` skips Qobuz tracks already present in the DB (by `qobuz_id`).
+- Optional: disable DB writes during downloads and rely on `fla lib scan/index`:
+
+```bash
+export FLA_DISABLE_AUTO_DB=1
+```
 
 ### Search (FTS-backed when available)
 

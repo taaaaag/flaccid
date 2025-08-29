@@ -74,9 +74,19 @@ Roadmap: see `docs/ROADMAP.md` for the current backlog and priorities.
     - `fla playlist export playlist.match.json --format m3u`
 
 - Tagging (WIP; commands present, implementation pending)
-  - Qobuz: `fla tag qobuz --album-id 0886447783652 /path/to/AlbumFolder`
-  - Apple Music: `fla tag apple "Artist - Album" /path/to/AlbumFolder`
-  - Auto-tag (future): `fla tag auto /path/to/AlbumFolder --service qobuz`
+  - Fix ARTIST: `fla tag fix-artist /path/to/Album`
+  - Qobuz tags: `fla tag qobuz --album-id 0886447783652 /path/to/Album`
+  - Cascade: `fla tag cascade /path/to/Album --order "tidal,apple,qobuz,mb" --fill-missing`
+
+## Search
+
+Lookup tracks/albums across providers:
+
+```bash
+fla search qobuz "USAT21300959" --type track --json
+fla search tidal "Kind of Blue" --type album --limit 5
+fla search apple "Stairway to Heaven" --type track
+```
 
 ## Configuration Precedence
 
@@ -204,5 +214,10 @@ fla config show
 
 You can also set `FLA_LIBRARY_PATH` to point your library folder anywhere,
 including iCloud, and omit `--db` to keep the DB in that folder.
+
+### Notes
+- Qobuz: format 29 is skipped by default; use `-29` to try 29 first. Tune timeouts with `FLA_QOBUZ_HTTP_TIMEOUT`.
+- Skips duplicates: `fla get` filters out Qobuz tracks already present in the DB.
+- Disable DB writes during download: `export FLA_DISABLE_AUTO_DB=1` and run `fla lib scan/index` later.
 # flaccid
 # flaccid

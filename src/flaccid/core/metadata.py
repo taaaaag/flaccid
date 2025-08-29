@@ -69,6 +69,7 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             "discnumber": "DISCNUMBER",
             "disctotal": "DISCTOTAL",
             "date": "DATE",
+            "composer": "COMPOSER",
             "isrc": "ISRC",
             "copyright": "COPYRIGHT",
             "label": "LABEL",
@@ -86,6 +87,8 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             "qobuz_album_id": "QOBUZ_ALBUM_ID",
             "tidal_track_id": "TIDAL_TRACK_ID",
             "tidal_album_id": "TIDAL_ALBUM_ID",
+            "apple_track_id": "APPLE_TRACK_ID",
+            "apple_album_id": "APPLE_ALBUM_ID",
         }
         for key, tag_name in prov_map.items():
             if metadata.get(key):
@@ -117,6 +120,7 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             "date": "\xa9day",
             "genre": "\xa9gen",
             "copyright": "\xa9cprt",
+            "composer": "\xa9wrt",
         }
         for key, atom in text_map.items():
             if key in metadata and metadata[key] is not None:
@@ -170,6 +174,10 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             _set_ff("TIDAL_TRACK_ID", metadata["tidal_track_id"])
         if metadata.get("tidal_album_id"):
             _set_ff("TIDAL_ALBUM_ID", metadata["tidal_album_id"])
+        if metadata.get("apple_track_id"):
+            _set_ff("APPLE_TRACK_ID", metadata["apple_track_id"])
+        if metadata.get("apple_album_id"):
+            _set_ff("APPLE_ALBUM_ID", metadata["apple_album_id"])
 
         audio.save()
         return
@@ -188,6 +196,14 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             id3.add(TPE1(encoding=3, text=str(metadata["artist"])))
         if metadata.get("album") is not None:
             id3.add(TALB(encoding=3, text=str(metadata["album"])))
+        # Composer
+        try:
+            from mutagen.id3 import TCOM
+
+            if metadata.get("composer"):
+                id3.add(TCOM(encoding=3, text=str(metadata["composer"])))
+        except Exception:
+            pass
 
         # Track/disc numbers (support total via X/Y format if present)
         track = metadata.get("tracknumber")
@@ -239,6 +255,10 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             id3.add(TXXX(encoding=3, desc="TIDAL_TRACK_ID", text=str(metadata["tidal_track_id"])) )
         if metadata.get("tidal_album_id"):
             id3.add(TXXX(encoding=3, desc="TIDAL_ALBUM_ID", text=str(metadata["tidal_album_id"])) )
+        if metadata.get("apple_track_id"):
+            id3.add(TXXX(encoding=3, desc="APPLE_TRACK_ID", text=str(metadata["apple_track_id"])) )
+        if metadata.get("apple_album_id"):
+            id3.add(TXXX(encoding=3, desc="APPLE_ALBUM_ID", text=str(metadata["apple_album_id"])) )
 
         id3.save(file_path)
         return
