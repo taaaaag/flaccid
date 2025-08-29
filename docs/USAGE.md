@@ -198,6 +198,16 @@ fla lib stats --json
 
 ```bash
 fla lib vacuum
+```
+
+### Metadata & Service IDs
+
+- FLACCID writes provider IDs into tags when available:
+  - FLAC/Vorbis: `QOBUZ_TRACK_ID`, `QOBUZ_ALBUM_ID`, `TIDAL_TRACK_ID`, `TIDAL_ALBUM_ID`.
+  - MP3/ID3: `TXXX:QOBUZ_TRACK_ID`, `TXXX:TIDAL_TRACK_ID` (and album variants).
+  - MP4/M4A: freeform atoms `----:com.apple.iTunes:<NAME>`.
+- The library indexer reads these tags and stores them in the database (`tracks.qobuz_id`, `tracks.tidal_id`).
+- ISRC remains the best cross-service key where present; FLACCID also saves ISRC to aid matching.
 
 ### Search (FTS-backed when available)
 

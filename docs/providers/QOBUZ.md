@@ -32,6 +32,9 @@ Notes:
   - `fla config auto-qobuz --app-id YOUR_APP_ID --email you@example.com --password 'your-password'`
   - Optionally include your App Secret: `--app-secret YOUR_APP_SECRET`
 
+- Auto-fetch from web bundle (no external tools):
+  - `fla config fetch-qobuz-secrets` scrapes play.qobuz.com’s bundle to discover `app_id` and a set of valid `secrets`, then stores them in settings (and caches the first secret in keyring). This mirrors what community tools do programmatically.
+
 - Using environment variables (good for CI/automation):
   - `FLA_QOBUZ_APP_ID`
   - `FLA_QOBUZ_APP_SECRET` (optional)
@@ -74,4 +77,3 @@ By default, MP3-only results are skipped. Use `--allow-mp3` to permit MP3 downlo
 - Never commit credentials to source control.
 - Do not share App IDs/Secrets publicly. Rotate credentials if you suspect exposure.
 - Use OS keychain where possible. Keep `.secrets.toml` out of version control.
-

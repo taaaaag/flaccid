@@ -10,6 +10,7 @@ This module provides tools to manage the local music library, including:
 import sqlite3
 import json
 import time
+import requests
 from pathlib import Path
 from typing import Optional
 
@@ -19,7 +20,13 @@ from rich.progress import Progress
 from rich.table import Table
 
 from ..core.config import get_settings
-from ..core.database import get_db_connection, init_db, insert_track
+from ..core.database import (
+    get_db_connection,
+    init_db,
+    insert_track,
+    upsert_track_id,
+    upsert_album_id,
+)
 from ..core.library import (
     get_library_stats,
     index_file,
@@ -213,6 +220,112 @@ def lib_vacuum():
         conn.execute("VACUUM")
         conn.execute("ANALYZE")
     console.print("[green]✅ Database optimized.[/green]")
+
+
+@app.command("enrich-mb")
+def lib_enrich_mb(
+    limit: int = typer.Option(100, "--limit", help="Max tracks to enrich this run"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without writing"),
+    rps: float = typer.Option(1.0, "--rps", help="Max requests/sec to MusicBrainz"),
+):
+    """Enrich tracks with MusicBrainz IDs using ISRC after the fact.
+
+    For each track missing an MB recording ID, queries MusicBrainz by ISRC and
+    stores the best match as `track_ids(namespace='mb:recording')`. Also stores
+    album-level IDs when available (mb:release, mb:release-group, UPC barcode).
+    """
+    settings = get_settings()
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
+    conn = get_db_connection(db_path)
+    init_db(conn)
+
+    cur = conn.cursor()
+    rows = cur.execute(
+        """
+        SELECT t.id, t.title, t.artist, t.album, t.albumartist, t.isrc, t.duration
+        FROM tracks t
+        WHERE t.isrc IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM track_ids i
+              WHERE i.track_rowid = t.id AND i.namespace = 'mb:recording'
+          )
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    if not rows:
+        console.print("[green]No tracks need MB enrichment.[/green]")
+        return
+
+    console.print(f"[cyan]Enriching up to {len(rows)} tracks via MusicBrainz (by ISRC)...[/cyan]")
+    base = "https://musicbrainz.org/ws/2/recording"
+    headers = {
+        "User-Agent": "flaccid/0.1 (+https://github.com/; CLI enrichment)",
+        "Accept": "application/json",
+    }
+    delay = max(1.0 / max(rps, 0.1), 0.0)
+    added = 0
+
+    def pick_best(rec_list: list, duration: int | None):
+        if not rec_list:
+            return None
+        def score_key(r: dict):
+            s = int(r.get("score") or 0)
+            d = None
+            try:
+                if duration and r.get("length"):
+                    d = abs(int(r.get("length")) / 1000 - int(duration))
+            except Exception:
+                d = None
+            # Higher score first, then smaller duration diff
+            return (-s, d if d is not None else 999999)
+        return sorted(rec_list, key=score_key)[0]
+
+    for (rowid, title, artist, album, albumartist, isrc, duration) in rows:
+        try:
+            params = {"query": f"isrc:{isrc}", "fmt": "json", "inc": "releases"}
+            resp = requests.get(base, params=params, headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json() or {}
+            recs = data.get("recordings") or []
+            best = pick_best(recs, duration)
+            if not best:
+                continue
+            rec_id = best.get("id")
+            if not rec_id:
+                continue
+            if dry_run:
+                console.print(f"would add mb:recording {rec_id} for '{artist} - {title}'")
+            else:
+                upsert_track_id(conn, rowid, "mb:recording", rec_id, preferred=True)
+                added += 1
+            # Album-level IDs
+            rels = best.get("releases") or []
+            if rels:
+                rel = rels[0]
+                rel_id = rel.get("id")
+                rg = rel.get("release-group") or {}
+                rg_id = rg.get("id")
+                barcode = rel.get("barcode")
+                if not dry_run:
+                    if rel_id:
+                        upsert_album_id(conn, albumartist, album, None, "mb:release", rel_id)
+                    if rg_id:
+                        upsert_album_id(conn, albumartist, album, None, "mb:release-group", rg_id)
+                    if barcode:
+                        upsert_album_id(conn, albumartist, album, None, "upc", barcode)
+            time.sleep(delay)
+        except requests.RequestException as e:
+            console.print(f"[yellow]MB request failed for ISRC {isrc}: {e}[/yellow]")
+            time.sleep(delay)
+            continue
+        except Exception as e:
+            console.print(f"[yellow]Skipping '{artist} - {title}': {e}[/yellow]")
+            continue
+
+    if not dry_run:
+        console.print(f"[green]✅ Added {added} MusicBrainz recording IDs.[/green]")
 
 
 @app.command("search")

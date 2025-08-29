@@ -47,6 +47,10 @@ settings_loader = Dynaconf(
 )
 
 
+# Defaults
+DEFAULT_QOBUZ_APP_ID = "798273057"
+
+
 class FlaccidSettings(BaseModel):
     """A Pydantic model that defines and validates all application settings."""
 
@@ -59,7 +63,8 @@ class FlaccidSettings(BaseModel):
     db_path: Optional[Path] = None
 
     # Service API settings
-    qobuz_app_id: Optional[str] = None
+    # Hardcode a sensible default App ID to reduce setup friction
+    qobuz_app_id: Optional[str] = Field(default=DEFAULT_QOBUZ_APP_ID)
     qobuz_app_secret: Optional[str] = None
     qobuz_secrets: Optional[list[str]] = None
     tidal_client_id: Optional[str] = None

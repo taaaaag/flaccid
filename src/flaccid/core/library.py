@@ -11,6 +11,7 @@ from pathlib import Path
 
 import mutagen
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TPOS, TSRC
+from mutagen.mp4 import MP4
 from rich.console import Console
 
 from .database import Track, get_all_tracks, insert_track, remove_track_by_path
@@ -33,7 +34,10 @@ def scan_library_paths(library_root: Path) -> list[Path]:
     return [
         p
         for p in library_root.rglob("*")
-        if p.suffix.lower() in audio_exts and p.is_file()
+        if p.suffix.lower() in audio_exts
+        and p.is_file()
+        and not p.name.startswith(".")
+        and not p.name.startswith("._")
     ]
 
 
@@ -54,6 +58,7 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
         discnumber = 0
         isrc = None
         duration = None
+        apple_id = None
 
         if audio:
 
@@ -74,6 +79,19 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
             except Exception:
                 discnumber = 0
             isrc = get_tag("isrc", None)
+            # Provider IDs from FLAC/Vorbis comments (easy tags lowercased)
+            try:
+                qobuz_id = get_tag("qobuz_track_id", None)
+            except Exception:
+                qobuz_id = None
+            try:
+                tidal_id = get_tag("tidal_track_id", None)
+            except Exception:
+                tidal_id = None
+            try:
+                apple_id = get_tag("apple_track_id", None)
+            except Exception:
+                apple_id = None
             duration = int(audio.info.length) if getattr(audio, "info", None) else None
         else:
             # Fallback: bare ID3 tags without audio frames
@@ -101,8 +119,46 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
                         discnumber = 0
                 if id3.get("TSRC"):
                     isrc = str(id3.get("TSRC").text[0])
+                # Provider IDs from TXXX frames
+                def _get_txxx(desc: str):
+                    frames = id3.getall("TXXX")
+                    for fr in frames:
+                        try:
+                            if getattr(fr, 'desc', '') == desc and fr.text:
+                                return str(fr.text[0])
+                        except Exception:
+                            continue
+                    return None
+                qobuz_id = _get_txxx("QOBUZ_TRACK_ID")
+                tidal_id = _get_txxx("TIDAL_TRACK_ID")
+                apple_id = _get_txxx("APPLE_TRACK_ID")
             except Exception:
                 return None
+
+        # MP4/M4A freeform atoms (----:com.apple.iTunes:<NAME>)
+        try:
+            if file_path.suffix.lower() == ".m4a":
+                mp4 = MP4(file_path)
+                def _get_ff(name: str):
+                    key = f"----:com.apple.iTunes:{name}"
+                    val = mp4.tags.get(key)
+                    if val and isinstance(val, list) and len(val) > 0:
+                        raw = val[0]
+                        try:
+                            return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                        except Exception:
+                            return None
+                    return None
+                if 'qobuz_id' not in locals() or qobuz_id is None:
+                    qobuz_id = _get_ff("QOBUZ_TRACK_ID")
+                if 'tidal_id' not in locals() or tidal_id is None:
+                    tidal_id = _get_ff("TIDAL_TRACK_ID")
+                if 'apple_id' not in locals() or apple_id is None:
+                    apple_id = _get_ff("APPLE_TRACK_ID")
+                if not isrc:
+                    isrc = _get_ff("ISRC")
+        except Exception:
+            pass
 
         track = Track(
             title=title,
@@ -112,6 +168,9 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
             tracknumber=tracknumber,
             discnumber=discnumber,
             isrc=isrc,
+            qobuz_id=locals().get("qobuz_id"),
+            tidal_id=locals().get("tidal_id"),
+            apple_id=locals().get("apple_id"),
             duration=duration,
             path=str(file_path.resolve()),
             hash=compute_hash(file_path) if verify else None,

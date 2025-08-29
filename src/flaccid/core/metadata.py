@@ -80,6 +80,17 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             if key in metadata and metadata[key] is not None:
                 audio[tag_name] = [str(metadata[key])]
 
+        # Provider IDs as vendor-specific tags
+        prov_map = {
+            "qobuz_track_id": "QOBUZ_TRACK_ID",
+            "qobuz_album_id": "QOBUZ_ALBUM_ID",
+            "tidal_track_id": "TIDAL_TRACK_ID",
+            "tidal_album_id": "TIDAL_ALBUM_ID",
+        }
+        for key, tag_name in prov_map.items():
+            if metadata.get(key):
+                audio[tag_name] = [str(metadata[key])]
+
         # Cover art
         image_data = None
         cover_url = metadata.get("cover_url")
@@ -146,6 +157,20 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
                     fmt = MP4Cover.FORMAT_PNG
                 audio.tags["covr"] = [MP4Cover(image_data, imageformat=fmt)]
 
+        # Provider IDs as freeform atoms
+        def _set_ff(name: str, val: str):
+            audio.tags[f"----:com.apple.iTunes:{name}"] = [
+                MP4FreeForm(str(val).encode("utf-8"), dataformat=0)
+            ]
+        if metadata.get("qobuz_track_id"):
+            _set_ff("QOBUZ_TRACK_ID", metadata["qobuz_track_id"])
+        if metadata.get("qobuz_album_id"):
+            _set_ff("QOBUZ_ALBUM_ID", metadata["qobuz_album_id"])
+        if metadata.get("tidal_track_id"):
+            _set_ff("TIDAL_TRACK_ID", metadata["tidal_track_id"])
+        if metadata.get("tidal_album_id"):
+            _set_ff("TIDAL_ALBUM_ID", metadata["tidal_album_id"])
+
         audio.save()
         return
 
@@ -204,6 +229,16 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
                     data=image_data,
                 )
             )
+
+        # Provider IDs as TXXX frames
+        if metadata.get("qobuz_track_id"):
+            id3.add(TXXX(encoding=3, desc="QOBUZ_TRACK_ID", text=str(metadata["qobuz_track_id"])) )
+        if metadata.get("qobuz_album_id"):
+            id3.add(TXXX(encoding=3, desc="QOBUZ_ALBUM_ID", text=str(metadata["qobuz_album_id"])) )
+        if metadata.get("tidal_track_id"):
+            id3.add(TXXX(encoding=3, desc="TIDAL_TRACK_ID", text=str(metadata["tidal_track_id"])) )
+        if metadata.get("tidal_album_id"):
+            id3.add(TXXX(encoding=3, desc="TIDAL_ALBUM_ID", text=str(metadata["tidal_album_id"])) )
 
         id3.save(file_path)
         return

@@ -13,7 +13,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Iterable, Tuple
 
 from rich.console import Console
 
@@ -90,12 +90,12 @@ def init_db(conn: sqlite3.Connection):
                 tracknumber INTEGER,
                 discnumber INTEGER,
                 duration INTEGER,
-                isrc TEXT UNIQUE,
-                qobuz_id TEXT UNIQUE,
-                apple_id TEXT UNIQUE,
-                tidal_id TEXT UNIQUE,
+                isrc TEXT,
+                qobuz_id TEXT,
+                apple_id TEXT,
+                tidal_id TEXT,
                 path TEXT NOT NULL UNIQUE,
-                hash TEXT UNIQUE,
+                hash TEXT,
                 last_modified REAL,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -104,6 +104,11 @@ def init_db(conn: sqlite3.Connection):
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_path ON tracks (path)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_album ON tracks (album)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_track_artist ON tracks (artist)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_isrc ON tracks (isrc)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_qobuz ON tracks (qobuz_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_tidal ON tracks (tidal_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_apple ON tracks (apple_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_hash ON tracks (hash)")
 
         # Optional FTS5 index for fast search over title/artist/album.
         # Use content-based FTS so rows stay in sync with triggers.
@@ -138,6 +143,42 @@ def init_db(conn: sqlite3.Connection):
         except sqlite3.Error:
             # FTS5 may be unavailable; continue without it
             pass
+        # Auxiliary table for multiple external IDs per track
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS track_ids (
+                id INTEGER PRIMARY KEY,
+                track_rowid INTEGER NOT NULL,
+                namespace TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                preferred INTEGER DEFAULT 0,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(namespace, external_id),
+                FOREIGN KEY(track_rowid) REFERENCES tracks(id) ON DELETE CASCADE
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_track_ids_track ON track_ids (track_rowid)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_track_ids_ns ON track_ids (namespace)"
+        )
+        # Optional album-level identifiers without creating a full albums table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS album_ids (
+                id INTEGER PRIMARY KEY,
+                albumartist TEXT,
+                album TEXT,
+                date TEXT,
+                namespace TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(albumartist, album, date, namespace, external_id)
+            )
+            """
+        )
         conn.commit()
     except sqlite3.Error as e:
         console.print(f"[red]Database initialization error: {e}[/red]")
@@ -187,7 +228,69 @@ def insert_track(conn: sqlite3.Connection, track: Track) -> Optional[int]:
         cur = conn.cursor()
         cur.execute(sql, track_dict)
         conn.commit()
-        return cur.lastrowid
+        # Always return the row id for the path (lastrowid can be 0 on update)
+        row = cur.execute(
+            "SELECT id FROM tracks WHERE path = ?", (track.path,)
+        ).fetchone()
+        return row[0] if row else None
     except sqlite3.Error as e:
         console.print(f"[red]Failed to insert track {track.path}: {e}[/red]")
         return None
+
+
+def upsert_track_id(
+    conn: sqlite3.Connection,
+    track_rowid: int,
+    namespace: str,
+    external_id: str,
+    preferred: bool = False,
+) -> None:
+    """Upserts a single external ID for a given track."""
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO track_ids (track_rowid, namespace, external_id, preferred)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(namespace, external_id) DO UPDATE SET
+                track_rowid=excluded.track_rowid,
+                preferred=CASE WHEN excluded.preferred=1 THEN 1 ELSE track_ids.preferred END
+            """,
+            (track_rowid, namespace, external_id, 1 if preferred else 0),
+        )
+        conn.commit()
+    except sqlite3.Error as e:
+        console.print(f"[yellow]Warning: could not upsert track_id {namespace}:{external_id}: {e}[/yellow]")
+
+
+def upsert_track_ids(
+    conn: sqlite3.Connection, track_rowid: int, ids: Iterable[Tuple[str, str]], preferred_ns: set[str] | None = None
+) -> None:
+    preferred_ns = preferred_ns or set()
+    for ns, ext_id in ids:
+        if not ns or not ext_id:
+            continue
+        upsert_track_id(conn, track_rowid, ns, ext_id, preferred=(ns in preferred_ns))
+
+
+def upsert_album_id(
+    conn: sqlite3.Connection,
+    albumartist: Optional[str],
+    album: Optional[str],
+    date: Optional[str],
+    namespace: str,
+    external_id: str,
+) -> None:
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO album_ids (albumartist, album, date, namespace, external_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(albumartist, album, date, namespace, external_id) DO NOTHING
+            """,
+            (albumartist, album, date, namespace, external_id),
+        )
+        conn.commit()
+    except sqlite3.Error as e:
+        console.print(f"[yellow]Warning: could not upsert album_id {namespace}:{external_id}: {e}[/yellow]")

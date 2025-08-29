@@ -12,6 +12,8 @@ import os
 import time
 import webbrowser
 import json
+import re
+import base64
 from pathlib import Path
 from typing import Optional
 
@@ -289,6 +291,142 @@ def auto_qobuz(
 
     except requests.RequestException as e:
         raise typer.Exit(f"[red]❌ An error occurred during login:[/red] {e}")
+
+
+@app.command("fetch-qobuz-secrets")
+def fetch_qobuz_secrets():
+    """
+    Scrape Qobuz web bundle to discover app_id and secrets, then persist them.
+
+    This automates what community tools do: fetch the play.qobuz.com login page,
+    locate the bundle.js, extract the appId and decode embedded secrets.
+    """
+    console.print("🌐 Fetching Qobuz web bundle for credentials...")
+
+    LOGIN_URL = "https://play.qobuz.com/login"
+    BASE_URL = "https://play.qobuz.com"
+    BUNDLE_RE = re.compile(
+        r'<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"></script>'
+    )
+    APP_ID_RE = re.compile(
+        r'production:{api:{appId:"(?P<app_id>\d{9})",appSecret:"\w{32}"'
+    )
+    SEED_TZ_RE = re.compile(
+        r'[a-z]\.initialSeed\("(?P<seed>[\w=]+)",window\.utimezone\.(?P<tz>[a-z]+)\)'
+    )
+    INFO_EXTRAS_RE_TMPL = (
+        r'name:"\w+/(?P<tz>{timezones})",info:"(?P<info>[\w=]+)",extras:"(?P<extras>[\w=]+)"'
+    )
+
+    s = requests.Session()
+    try:
+        r = s.get(LOGIN_URL, timeout=HTTP_TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:
+        raise typer.Exit(f"[red]❌ Failed to fetch login page:[/red] {e}")
+
+    m = BUNDLE_RE.search(r.text)
+    if not m:
+        raise typer.Exit("[red]❌ Could not locate Qobuz bundle.js on login page.[/red]")
+    bundle_url = BASE_URL + m.group(1)
+
+    try:
+        b = s.get(bundle_url, timeout=HTTP_TIMEOUT)
+        b.raise_for_status()
+    except Exception as e:
+        raise typer.Exit(f"[red]❌ Failed to fetch bundle:[/red] {e}")
+
+    bundle = b.text
+    app_id_m = APP_ID_RE.search(bundle)
+    if not app_id_m:
+        raise typer.Exit("[red]❌ Failed to extract app_id from bundle.[/red]")
+    app_id = app_id_m.group("app_id")
+
+    seeds = list(SEED_TZ_RE.finditer(bundle))
+    if not seeds:
+        raise typer.Exit("[red]❌ Failed to discover secrets seeds in bundle.[/red]")
+    tz_map = {}
+    order = []
+    for sm in seeds:
+        seed, tz = sm.group("seed"), sm.group("tz")
+        tz_map[tz] = [seed]
+        order.append(tz)
+
+    info_extras_re = re.compile(
+        INFO_EXTRAS_RE_TMPL.format(timezones="|".join([tz.capitalize() for tz in tz_map.keys()]))
+    )
+    for im in info_extras_re.finditer(bundle):
+        tz, info, extras = im.group("tz", "info", "extras")
+        tz = tz.lower()
+        if tz in tz_map:
+            tz_map[tz] += [info, extras]
+
+    decoded: list[str] = []
+    for tz, parts in tz_map.items():
+        try:
+            decoded_val = base64.standard_b64decode("".join(parts)[:-44]).decode("utf-8")
+            if decoded_val:
+                decoded.append(decoded_val)
+        except Exception:
+            continue
+    decoded = [s for s in decoded if s]
+    if not decoded:
+        raise typer.Exit("[red]❌ Failed to decode any Qobuz secrets from bundle.[/red]")
+
+    # Persist in user-scoped settings TOML (not just process memory)
+    settings = get_settings()
+    settings.qobuz_app_id = app_id
+    try:
+        settings.qobuz_secrets = decoded
+    except Exception:
+        pass
+
+    # Write to ~/.config/flaccid/settings.toml, preserving existing layout
+    try:
+        USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if USER_SETTINGS_FILE.exists():
+            try:
+                existing = toml.loads(USER_SETTINGS_FILE.read_text(encoding="utf-8")) or {}
+            except Exception:
+                existing = {}
+        # Detect dynaconf-style [default] section
+        target_table = None
+        if isinstance(existing, dict) and ("default" in existing or "DEFAULT" in existing):
+            if "default" in existing and isinstance(existing["default"], dict):
+                target_table = existing["default"]
+            elif "DEFAULT" in existing and isinstance(existing["DEFAULT"], dict):
+                target_table = existing["DEFAULT"]
+        # Create new table if absent
+        if target_table is None:
+            target_table = existing
+        # Update keys
+        target_table["qobuz_app_id"] = app_id
+        target_table["qobuz_secrets"] = decoded
+        # Reassign for [default]/[DEFAULT] case
+        if "default" in existing and target_table is not existing:
+            existing["default"] = target_table
+        if "DEFAULT" in existing and target_table is not existing:
+            existing["DEFAULT"] = target_table
+        USER_SETTINGS_FILE.write_text(toml.dumps(existing), encoding="utf-8")
+    except Exception as e:
+        console.print(f"[yellow]Warning:[/yellow] Failed to persist to settings file: {e}")
+
+    # Cache the first secret in keyring for convenience; fallback to .secrets.toml
+    secret_persist = "keyring"
+    try:
+        store_credentials("qobuz", "app_secret", decoded[0])
+    except Exception:
+        # Fallback write to ~/.config/flaccid/.secrets.toml
+        ok = _persist_secret("qobuz_app_secret", decoded[0])
+        secret_persist = f".secrets.toml ({USER_SECRETS_FILE})" if ok else "failed"
+
+    console.print("[green]✅ Fetched Qobuz credentials[/green]")
+    console.print(f"  app_id: [blue]{app_id}[/blue]")
+    console.print(f"  secrets: [blue]{len(decoded)} found[/blue]")
+    console.print(
+        f"  persisted: settings ({USER_SETTINGS_FILE}) + {secret_persist} (first secret)"
+    )
 
 
 @app.command("auto-tidal")

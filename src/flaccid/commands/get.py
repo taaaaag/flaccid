@@ -14,6 +14,7 @@ import typer
 from rich.console import Console
 
 from ..core.config import get_settings
+from ..core.database import get_db_connection
 from ..plugins.qobuz import QobuzPlugin
 from ..plugins.tidal import TidalPlugin
 
@@ -36,13 +37,27 @@ async def _download_qobuz(
     verify: bool = False,
     correlation_id: Optional[str] = None,
     qobuz_rps: Optional[int] = None,
+    prefer_29: Optional[bool] = None,
 ):
     """Internal function to download from Qobuz."""
     # Quality fallback for Qobuz: hires -> lossless -> mp3
     quality_fallback = ["hires", "lossless", "mp3"] if quality == "max" else [quality]
 
     try:
-        async with QobuzPlugin(correlation_id=correlation_id, rps=qobuz_rps) as plugin:
+        async with QobuzPlugin(
+            correlation_id=correlation_id, rps=qobuz_rps, prefer_29=prefer_29
+        ) as plugin:
+            # Helper: quick DB presence check by qobuz_id (track)
+            def _in_db_track(tid: str) -> bool:
+                try:
+                    st = get_settings()
+                    db_path = st.db_path or (st.library_path / "flaccid.db")
+                    conn = get_db_connection(db_path)
+                    row = conn.execute("SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (tid,)).fetchone()
+                    conn.close()
+                    return row is not None
+                except Exception:
+                    return False
             for q in quality_fallback:
                 try:
                     if album_id:
@@ -71,6 +86,10 @@ async def _download_qobuz(
                         # No tracks found; try lower quality won't help, break
                         raise RuntimeError("Playlist contained no downloadable tracks")
                     else:
+                        # Track pre-check: skip if already in DB
+                        if track_id and _in_db_track(str(track_id)):
+                            console.print("[cyan]Already in library; skipping download[/cyan]")
+                            return
                         ok = await plugin.download_track(
                             track_id, q, output_dir, allow_mp3, verify=verify
                         )
@@ -143,6 +162,8 @@ async def _download_from_url(
     qobuz_rps: Optional[int] = None,
     tidal_rps: Optional[int] = None,
     verify: bool = False,
+    prefer_29: Optional[bool] = None,
+    concurrency: int = 4,
 ):
     """Auto-detect service from URL and download."""
     console.print(f"🔍 Detecting service from URL: [blue]{url}[/blue]")
@@ -188,6 +209,7 @@ async def _download_from_url(
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
                 qobuz_rps=qobuz_rps,
+                prefer_29=prefer_29,
             )
         elif media_type == "album":
             await _download_qobuz(
@@ -197,6 +219,8 @@ async def _download_from_url(
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
                 qobuz_rps=qobuz_rps,
+                prefer_29=prefer_29,
+                concurrency=concurrency,
             )
         else:  # playlist
             await _download_qobuz(
@@ -206,6 +230,8 @@ async def _download_from_url(
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
                 qobuz_rps=qobuz_rps,
+                prefer_29=prefer_29,
+                concurrency=concurrency,
             )
         return
 
@@ -228,6 +254,7 @@ async def get_main(
     qobuz_rps: Optional[int] = None,
     tidal_rps: Optional[int] = None,
     verify: bool = False,
+    try_29: bool = False,
 ):
     """Internal function to handle the main download logic."""
     settings = get_settings()
@@ -257,6 +284,8 @@ async def get_main(
                 qobuz_rps,
                 tidal_rps,
                 verify,
+                prefer_29=try_29,
+                concurrency=concurrency,
             )
             return
 
@@ -277,6 +306,7 @@ async def get_main(
                     correlation_id=correlation_id,
                     qobuz_rps=qobuz_rps,
                     verify=verify,
+                    prefer_29=try_29,
                 )
             else:
                 # Default to track if no explicit type provided
@@ -288,6 +318,7 @@ async def get_main(
                     correlation_id=correlation_id,
                     qobuz_rps=qobuz_rps,
                     verify=verify,
+                    prefer_29=try_29,
                 )
             return
 
@@ -345,6 +376,8 @@ async def get_main(
                         correlation_id,
                         qobuz_rps,
                         tidal_rps,
+                        prefer_29=try_29,
+                        concurrency=concurrency,
                     )
                 return
             except Exception:
@@ -403,6 +436,9 @@ def get_qobuz(
     qobuz_rps: Optional[int] = typer.Option(
         None, "--qobuz-rps", help="Qobuz API rate limit (requests per second)"
     ),
+    try_29: bool = typer.Option(
+        False, "--try-29", "-29", help="Try Qobuz format 29 before 27 (default skips 29)"
+    ),
 ):
     """Download from Qobuz by album or track ID (Toolkit-style)."""
     if not album_id and not track_id:
@@ -423,6 +459,7 @@ def get_qobuz(
                 correlation_id=_uuid.uuid4().hex,
                 qobuz_rps=qobuz_rps,
                 verify=verify,
+                prefer_29=try_29,
             )
         )
     else:
@@ -435,6 +472,7 @@ def get_qobuz(
                 correlation_id=_uuid.uuid4().hex,
                 qobuz_rps=qobuz_rps,
                 verify=verify,
+                prefer_29=try_29,
             )
         )
 
@@ -554,6 +592,9 @@ def main(
     tidal_rps: Optional[int] = typer.Option(
         None, "--tidal-rps", help="Tidal API rate limit (requests per second)"
     ),
+    try_29: bool = typer.Option(
+        False, "--try-29", "-29", help="Try Qobuz format 29 before 27 (default skips 29)"
+    ),
 ):
     """
     🚀 Download tracks or albums from supported services.
@@ -590,6 +631,7 @@ def main(
             qobuz_rps,
             tidal_rps,
             verify,
+            try_29,
         )
     )
     if json_output:
