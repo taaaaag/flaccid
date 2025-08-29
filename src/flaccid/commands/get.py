@@ -28,6 +28,7 @@ def _is_url(value: str) -> bool:
 async def _download_qobuz(
     album_id: Optional[str] = None,
     track_id: Optional[str] = None,
+    playlist_id: Optional[str] = None,
     quality: str = "max",
     output_dir: Optional[Path] = None,
     allow_mp3: bool = False,
@@ -45,13 +46,45 @@ async def _download_qobuz(
             for q in quality_fallback:
                 try:
                     if album_id:
-                        await plugin.download_album(
+                        count = await plugin.download_album(
                             album_id, q, output_dir, allow_mp3, concurrency, verify=verify
                         )
+                        if count > 0:
+                            console.print(
+                                f"[green]✅ Downloaded album in {q} quality[/green]"
+                            )
+                            return
+                        if q != quality_fallback[-1]:
+                            console.print(
+                                f"[yellow]⚠️ No tracks downloaded in {q}, trying lower quality...[/yellow]"
+                            )
+                            continue
+                        else:
+                            raise RuntimeError("No downloadable tracks at any quality")
+                    elif playlist_id:
+                        count = await plugin.download_playlist(
+                            playlist_id, q, output_dir, allow_mp3, concurrency, verify=verify
+                        )
+                        if count > 0:
+                            console.print(f"[green]✅ Downloaded playlist in {q} quality[/green]")
+                            return
+                        # No tracks found; try lower quality won't help, break
+                        raise RuntimeError("Playlist contained no downloadable tracks")
                     else:
-                        await plugin.download_track(track_id, q, output_dir, allow_mp3, verify=verify)
-                    console.print(f"[green]✅ Downloaded in {q} quality[/green]")
-                    return
+                        ok = await plugin.download_track(
+                            track_id, q, output_dir, allow_mp3, verify=verify
+                        )
+                        if ok:
+                            console.print(f"[green]✅ Downloaded in {q} quality[/green]")
+                            return
+                        # not ok → try lower quality if available
+                        if q != quality_fallback[-1]:
+                            console.print(
+                                f"[yellow]⚠️ {q} quality failed, trying lower quality...[/yellow]"
+                            )
+                            continue
+                        else:
+                            raise RuntimeError("No suitable format URL found")
                 except Exception as e:
                     if q != quality_fallback[-1]:  # Not the last quality option
                         console.print(
@@ -138,13 +171,14 @@ async def _download_from_url(
             )
         return
 
+    # Support qobuz album/track/playlist URLs including open.qobuz.com and locale paths
     qobuz_match = re.search(
-        r"qobuz.com/([a-z]{2}-[a-z]{2})/(album|track)/([\w\d-]+)", url
+        r"qobuz\.com/(?:[a-z]{2}-[a-z]{2}/)?(album|track|playlist)/([^?#]+)", url
     )
     if qobuz_match:
-        media_type, media_id = qobuz_match.group(2), qobuz_match.group(3)
-        # Qobuz IDs are often at the end of a slug, so we take the last part
-        final_id = media_id.split("/")[-1]
+        media_type, media_tail = qobuz_match.group(1), qobuz_match.group(2)
+        # Take last path segment as the canonical id (handles slug/id and id-only)
+        final_id = media_tail.split("/")[-1]
         console.print(f"Detected Qobuz {media_type} with ID: {final_id}")
         if media_type == "track":
             await _download_qobuz(
@@ -155,9 +189,18 @@ async def _download_from_url(
                 correlation_id=correlation_id,
                 qobuz_rps=qobuz_rps,
             )
-        else:
+        elif media_type == "album":
             await _download_qobuz(
                 album_id=final_id,
+                quality="max",
+                output_dir=output_dir,
+                allow_mp3=allow_mp3,
+                correlation_id=correlation_id,
+                qobuz_rps=qobuz_rps,
+            )
+        else:  # playlist
+            await _download_qobuz(
+                playlist_id=final_id,
                 quality="max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
@@ -184,6 +227,7 @@ async def get_main(
     correlation_id: Optional[str] = None,
     qobuz_rps: Optional[int] = None,
     tidal_rps: Optional[int] = None,
+    verify: bool = False,
 ):
     """Internal function to handle the main download logic."""
     settings = get_settings()
@@ -318,6 +362,140 @@ app = typer.Typer(
 )
 
 
+def _normalize_quality(q: Optional[str]) -> str:
+    if not q:
+        return "max"
+    s = q.strip().lower()
+    if s in {"4", "max", "best", "hires", "hi-res", "hi_res"}:
+        return "max"
+    if s in {"3"}:
+        return "hires"
+    if s in {"2", "lossless", "flac"}:
+        return "lossless"
+    if s in {"1", "mp3", "320"}:
+        return "mp3"
+    return s
+
+
+@app.command("qobuz")
+def get_qobuz(
+    album_id: Optional[str] = typer.Option(
+        None, "--album-id", help="Qobuz album ID to download"
+    ),
+    track_id: Optional[str] = typer.Option(
+        None, "--track-id", help="Qobuz track ID to download"
+    ),
+    quality: Optional[str] = typer.Option(
+        "max", "--quality", "-q", help="Quality: max|hires|lossless|mp3|1-4"
+    ),
+    out: Optional[Path] = typer.Option(
+        None, "--out", "-o", help="Output directory (defaults to download path)"
+    ),
+    allow_mp3: bool = typer.Option(
+        False, "--allow-mp3", help="Permit MP3 fallback if FLAC unavailable"
+    ),
+    concurrency: int = typer.Option(
+        4, "--concurrency", help="Max concurrent downloads for album tasks"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="Run ffprobe to verify outputs"
+    ),
+    qobuz_rps: Optional[int] = typer.Option(
+        None, "--qobuz-rps", help="Qobuz API rate limit (requests per second)"
+    ),
+):
+    """Download from Qobuz by album or track ID (Toolkit-style)."""
+    if not album_id and not track_id:
+        raise typer.Exit("Specify either --album-id or --track-id")
+    settings = get_settings()
+    dst = (out or settings.download_path).resolve()
+    q = _normalize_quality(quality)
+    import uuid as _uuid
+
+    if album_id:
+        asyncio.run(
+            _download_qobuz(
+                album_id=album_id,
+                quality=q,
+                output_dir=dst,
+                allow_mp3=allow_mp3,
+                concurrency=concurrency,
+                correlation_id=_uuid.uuid4().hex,
+                qobuz_rps=qobuz_rps,
+                verify=verify,
+            )
+        )
+    else:
+        asyncio.run(
+            _download_qobuz(
+                track_id=track_id,
+                quality=q,
+                output_dir=dst,
+                allow_mp3=allow_mp3,
+                correlation_id=_uuid.uuid4().hex,
+                qobuz_rps=qobuz_rps,
+                verify=verify,
+            )
+        )
+
+
+@app.command("tidal")
+def get_tidal(
+    album_id: Optional[str] = typer.Option(
+        None, "--album-id", help="Tidal album ID to download"
+    ),
+    track_id: Optional[str] = typer.Option(
+        None, "--track-id", help="Tidal track ID to download"
+    ),
+    quality: Optional[str] = typer.Option(
+        "max", "--quality", "-q", help="Quality: max|hires|lossless|mp3"
+    ),
+    out: Optional[Path] = typer.Option(
+        None, "--out", "-o", help="Output directory (defaults to download path)"
+    ),
+    concurrency: int = typer.Option(
+        4, "--concurrency", help="Max concurrent downloads for album tasks"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="Run ffprobe to verify outputs"
+    ),
+    tidal_rps: Optional[int] = typer.Option(
+        None, "--tidal-rps", help="Tidal API rate limit (requests per second)"
+    ),
+):
+    """Download from Tidal by album or track ID (Toolkit-style)."""
+    if not album_id and not track_id:
+        raise typer.Exit("Specify either --album-id or --track-id")
+    settings = get_settings()
+    dst = (out or settings.download_path).resolve()
+    q = _normalize_quality(quality)
+    import uuid as _uuid
+
+    if album_id:
+        asyncio.run(
+            _download_tidal(
+                album_id=album_id,
+                quality=q,
+                output_dir=dst,
+                concurrency=concurrency,
+                correlation_id=_uuid.uuid4().hex,
+                tidal_rps=tidal_rps,
+                verify=verify,
+            )
+        )
+    else:
+        asyncio.run(
+            _download_tidal(
+                track_id=track_id,
+                quality=q,
+                output_dir=dst,
+                correlation_id=_uuid.uuid4().hex,
+                tidal_rps=tidal_rps,
+                verify=verify,
+            )
+        )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -338,6 +516,7 @@ def main(
     album: bool = typer.Option(
         False,
         "--album",
+        "-a",
         help="Treat ID/URL as album",
     ),
     playlist: bool = typer.Option(

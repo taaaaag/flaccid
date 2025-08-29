@@ -61,6 +61,7 @@ class FlaccidSettings(BaseModel):
     # Service API settings
     qobuz_app_id: Optional[str] = None
     qobuz_app_secret: Optional[str] = None
+    qobuz_secrets: Optional[list[str]] = None
     tidal_client_id: Optional[str] = None
 
     # Pydantic v2 configuration

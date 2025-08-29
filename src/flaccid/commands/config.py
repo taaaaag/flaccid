@@ -45,6 +45,9 @@ DEFAULT_TIDAL_CLIENT_ID = (
     "zU4XHVVkc2tDPo4t"  # Publicly known client ID for TV/media devices
 )
 
+# Default Qobuz App ID fallback (avoids prompting)
+DEFAULT_QOBUZ_APP_ID = "798273057"
+
 # HTTP policy
 HTTP_TIMEOUT = 20
 TIDAL_TIMEOUT = 10
@@ -125,16 +128,55 @@ def auto_qobuz(
     """
     console.print("🔐 [bold]Qobuz Authentication[/bold]")
 
+    # Best-effort defaults from Streamrip config so we only ask for email/password
+    def _load_streamrip_qobuz():
+        try:
+            import toml as _toml
+            sr_paths = [
+                Path.home()
+                / "Library"
+                / "Application Support"
+                / "streamrip"
+                / "config.toml",
+                Path.home() / ".config" / "streamrip" / "config.toml",
+            ]
+            for p in sr_paths:
+                if p.exists():
+                    cfg = _toml.loads(p.read_text(encoding="utf-8")) or {}
+                    q = cfg.get("qobuz") or {}
+                    return {
+                        "app_id": (str(q.get("app_id")) if q.get("app_id") else None),
+                        "secrets": (
+                            [str(s) for s in (q.get("secrets") or []) if s]
+                            if isinstance(q.get("secrets"), list)
+                            else []
+                        ),
+                        "email": q.get("email_or_userid"),
+                        "password_or_token": q.get("password_or_token"),
+                        "use_auth_token": bool(q.get("use_auth_token", False)),
+                    }
+        except Exception:
+            pass
+        return {
+            "app_id": None,
+            "secrets": [],
+            "email": None,
+            "password_or_token": None,
+            "use_auth_token": False,
+        }
+
     settings = get_settings()
+    _sr = _load_streamrip_qobuz()
     final_app_id = (
         app_id
         or os.getenv("FLA_QOBUZ_APP_ID")
         or os.getenv("QOBUZ_APP_ID")  # legacy
         or settings.qobuz_app_id
         or get_credentials("qobuz", "app_id")
+        or _sr.get("app_id")
+        or DEFAULT_QOBUZ_APP_ID
     )
-    if not final_app_id:
-        final_app_id = Prompt.ask("Please enter your Qobuz App ID")
+    # With default in place, no need to prompt for App ID
 
     final_app_secret = (
         app_secret
@@ -143,40 +185,55 @@ def auto_qobuz(
         or getattr(settings, "qobuz_app_secret", None)
         or get_credentials("qobuz", "app_secret")
     )
+    sr_secrets = _sr.get("secrets") or []
 
     user_email = (
         email
         or os.getenv("FLA_QOBUZ_EMAIL")
         or os.getenv("QOBUZ_EMAIL")
+        or _sr.get("email")
         or Prompt.ask("Enter your Qobuz email")
     )
-    user_password = (
-        password
-        or os.getenv("FLA_QOBUZ_PASSWORD")
-        or os.getenv("QOBUZ_PASSWORD")
-        or Prompt.ask("Enter your Qobuz password", password=True)
-    )
-    # Qobuz login expects MD5 of the password (per API). Do not log sensitive values.
-    pwd_md5 = hashlib.md5(user_password.encode("utf-8")).hexdigest()
+    token: Optional[str] = None
+    pwd_md5: Optional[str] = None
+    sr_pw_or_token = _sr.get("password_or_token")
+    if _sr.get("use_auth_token") and sr_pw_or_token:
+        token = str(sr_pw_or_token)
+    else:
+        user_password = (
+            password
+            or os.getenv("FLA_QOBUZ_PASSWORD")
+            or os.getenv("QOBUZ_PASSWORD")
+            or sr_pw_or_token
+            or Prompt.ask("Enter your Qobuz password", password=True)
+        )
+        # Qobuz login expects MD5 of the password (per API). Do not log sensitive values.
+        if isinstance(user_password, str) and len(user_password) == 32 and all(
+            c in "0123456789abcdef" for c in user_password.lower()
+        ):
+            pwd_md5 = user_password
+        else:
+            pwd_md5 = hashlib.md5(str(user_password).encode("utf-8")).hexdigest()
 
     try:
         console.print("Attempting to log in to Qobuz...")
-        r = _post_with_retries(
-            "https://www.qobuz.com/api.json/0.2/user/login",
-            data={"email": user_email, "password": pwd_md5, "app_id": final_app_id},
-            headers={"User-Agent": "flaccid/0.1.0"},
-            timeout=HTTP_TIMEOUT,
-        )
-        if r.status_code >= 400:
-            raise typer.Exit(
-                "[red]❌ Login failed ({code}).[/red] Check App ID and credentials. Try: `fla config auto-qobuz --app-id <APP_ID>`.".format(
-                    code=r.status_code
-                )
+        if token is None:
+            r = _post_with_retries(
+                "https://www.qobuz.com/api.json/0.2/user/login",
+                data={"email": user_email, "password": pwd_md5, "app_id": final_app_id},
+                headers={"User-Agent": "flaccid/0.1.0"},
+                timeout=HTTP_TIMEOUT,
             )
+            if r.status_code >= 400:
+                raise typer.Exit(
+                    "[red]❌ Login failed ({code}).[/red] Check App ID and credentials. Try: `fla config auto-qobuz --app-id <APP_ID>`.".format(
+                        code=r.status_code
+                    )
+                )
 
-        # Parse response
-        data = r.json()
-        token = data.get("user_auth_token")
+            # Parse response
+            data = r.json()
+            token = data.get("user_auth_token") or (data.get("user") or {}).get("user_auth_token")
         if not token:
             raise typer.Exit(f"[red]❌ Login failed. Response from Qobuz: {data}[/red]")
 
@@ -187,13 +244,16 @@ def auto_qobuz(
                 settings.qobuz_app_secret = final_app_secret
             except Exception:
                 pass
-        save_settings(settings)
-        app_id_status = f"settings ({USER_SETTINGS_FILE})"
-        # Best-effort: store non-sensitive id and secret in keyring as well
+        # Persist imported secrets list for Streamrip parity
         try:
-            store_credentials("qobuz", "app_id", final_app_id)
+            if sr_secrets:
+                settings.qobuz_secrets = sr_secrets
         except Exception:
             pass
+        save_settings(settings)
+        app_id_status = f"settings ({USER_SETTINGS_FILE})"
+        # Do not attempt to store app_id in keyring (non-sensitive; stored in settings)
+        # Optionally store app_secret if provided
         if final_app_secret:
             try:
                 store_credentials("qobuz", "app_secret", final_app_secret)
@@ -223,6 +283,7 @@ def auto_qobuz(
                     if get_credentials("qobuz", "app_secret")
                     else ("settings" if final_app_secret else "n/a")
                 ),
+                "secrets": f"settings ({USER_SETTINGS_FILE})" if sr_secrets else "n/a",
             },
         )
 
