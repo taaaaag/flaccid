@@ -416,6 +416,19 @@ async def get_main(
             console.print(
                 f"[cyan]Dry-run:[/cyan] Would download Tidal {'album' if album else 'track'} {tidal_id}"
             )
+    # Ensure library database is accessible before attempting any downloads
+    if not dry_run:
+        try:
+            from ..core.database import get_db_connection, init_db
+
+            db_path = settings.db_path or (settings.library_path / "flaccid.db")
+            conn = get_db_connection(db_path)
+            init_db(conn)
+            conn.close()
+        except Exception as e:
+            console.print(f"[red]Error: Unable to access library database:[/red] {e}")
+            raise typer.Exit(1)
+
         else:
             if album:
                 await _download_tidal(

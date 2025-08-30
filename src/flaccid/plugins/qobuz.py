@@ -638,6 +638,35 @@ class QobuzPlugin(BasePlugin):
             )
             return False
         ext = ".flac"
+        # Check library DB before attempting download to avoid duplicates
+        try:
+            st = _get_settings_cfg()
+            db_path = st.db_path or (st.library_path / "flaccid.db")
+            conn = _db_conn(db_path)
+            cur = conn.cursor()
+            isrc = metadata.get("isrc")
+            if isrc:
+                row = cur.execute(
+                    "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+                ).fetchone()
+                if row is not None:
+                    console.print(
+                        "[cyan]Already in library (by ISRC); skipping download[/cyan]"
+                    )
+                    conn.close()
+                    return False
+            row2 = cur.execute(
+                "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (str(track_id),)
+            ).fetchone()
+            if row2 is not None:
+                console.print(
+                    "[cyan]Already in library (by Qobuz ID); skipping download[/cyan]"
+                )
+                conn.close()
+                return False
+            conn.close()
+        except Exception:
+            pass
         relative_path = _generate_path_from_template(metadata, ext)
         filepath = output_dir / relative_path
         filepath.parent.mkdir(parents=True, exist_ok=True)

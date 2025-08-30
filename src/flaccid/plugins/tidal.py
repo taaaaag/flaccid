@@ -676,6 +676,38 @@ class TidalPlugin(BasePlugin):
                     last_modified=filepath.stat().st_mtime,
                 )
                 rowid = _insert(conn, tr)
+        # Check library DB before attempting download to avoid duplicates
+        try:
+            from ..core.config import get_settings as _get_settings
+            from ..core.database import get_db_connection as _dbc
+
+            st = _get_settings()
+            db_path = st.db_path or (st.library_path / "flaccid.db")
+            conn = _dbc(db_path)
+            cur = conn.cursor()
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE tidal_id=? LIMIT 1", (str(track_id),)
+            ).fetchone()
+            if row is not None:
+                console.print(
+                    "[cyan]Already in library (by Tidal ID); skipping download[/cyan]"
+                )
+                conn.close()
+                return False
+            isrc = metadata.get("isrc")
+            if isrc:
+                row2 = cur.execute(
+                    "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+                ).fetchone()
+                if row2 is not None:
+                    console.print(
+                        "[cyan]Already in library (by ISRC); skipping download[/cyan]"
+                    )
+                    conn.close()
+                    return False
+            conn.close()
+        except Exception:
+            pass
                 try:
                     if rowid is not None:
                         _upsert_id(conn, rowid, "tidal", str(track_id), preferred=False)
