@@ -7,6 +7,7 @@ flow, token refreshing, and API calls for track and album data.
 """
 
 import asyncio
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,21 +16,16 @@ from tempfile import TemporaryDirectory
 import requests
 from rich.console import Console
 
-from .base import BasePlugin
+from ..core.api_config import TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL, TIDAL_API_URL
 from ..core.auth import get_credentials, store_credentials
 from ..core.downloader import download_file
 from ..core.metadata import apply_metadata
-
-from ..core.api_config import (
-    TIDAL_API_URL,
-    TIDAL_API_FALLBACK_URL,
-    TIDAL_API_ALT_URL,
-)
-import logging
+from .base import BasePlugin
 
 logger = logging.getLogger(__name__)
-from ..core.ratelimit import AsyncRateLimiter
 import os
+
+from ..core.ratelimit import AsyncRateLimiter
 
 
 def _sanitize(name: str) -> str:
@@ -52,11 +48,7 @@ class TidalPlugin(BasePlugin):
         self.session = requests.Session()
         self.correlation_id = correlation_id
         self._rps = rps
-        _rps = (
-            self._rps
-            if self._rps is not None
-            else int(os.getenv("FLA_TIDAL_RPS", "5") or "5")
-        )
+        _rps = self._rps if self._rps is not None else int(os.getenv("FLA_TIDAL_RPS", "5") or "5")
         self._limiter = AsyncRateLimiter(_rps, 1.0)
         self.country_code = os.getenv("FLA_TIDAL_COUNTRY", "US")
 
@@ -101,9 +93,7 @@ class TidalPlugin(BasePlugin):
         response = self.session.get(url, headers=headers, timeout=10)
 
         if response.status_code == 401:
-            console.print(
-                "[yellow]Tidal access token expired. Attempting to refresh...[/yellow]"
-            )
+            console.print("[yellow]Tidal access token expired. Attempting to refresh...[/yellow]")
             await self._refresh_access_token()
             response = self.session.get(url, headers=headers, timeout=10)
 
@@ -117,9 +107,7 @@ class TidalPlugin(BasePlugin):
 
         response.raise_for_status()
         user_data = response.json()
-        console.print(
-            f"[green]✅ Authenticated as Tidal user: {user_data.get('email')}[/green]"
-        )
+        console.print(f"[green]✅ Authenticated as Tidal user: {user_data.get('email')}[/green]")
         logger.debug(
             "tidal.authenticate ok",
             extra={
@@ -211,7 +199,7 @@ class TidalPlugin(BasePlugin):
         cover_url = None
         image_cover = (album_info.get("imageCover") or {}) if isinstance(album_info, dict) else {}
         if isinstance(image_cover, dict):
-            large = (image_cover.get("large") or {})
+            large = image_cover.get("large") or {}
             cover_url = large.get("url") or image_cover.get("url")
         if not cover_url:
             cover_id = album_info.get("cover") or data.get("cover")
@@ -243,7 +231,12 @@ class TidalPlugin(BasePlugin):
         """
         hosts = [TIDAL_API_URL, TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL]
         params_variants = [
-            {"query": isrc, "types": "TRACKS", "limit": 1, "countryCode": self.country_code},
+            {
+                "query": isrc,
+                "types": "TRACKS",
+                "limit": 1,
+                "countryCode": self.country_code,
+            },
             {"query": isrc, "types": "TRACKS", "limit": 1},
         ]
         headers = {"Accept": "application/vnd.tidal.v1+json"}
@@ -251,7 +244,9 @@ class TidalPlugin(BasePlugin):
             for params in params_variants:
                 try:
                     await self._limiter.acquire()
-                    resp = self.session.get(f"{base}/v1/search", params=params, headers=headers, timeout=10)
+                    resp = self.session.get(
+                        f"{base}/v1/search", params=params, headers=headers, timeout=10
+                    )
                     if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
                         continue
                     resp.raise_for_status()
@@ -300,9 +295,24 @@ class TidalPlugin(BasePlugin):
         # Try both common param casings across hosts
         param_variants = [
             # With explicit country
-            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
-            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
-            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM", "countryCode": self.country_code},
+            {
+                "audioquality": q,
+                "assetpresentation": "FULL",
+                "playbackmode": "STREAM",
+                "countryCode": self.country_code,
+            },
+            {
+                "audioQuality": q,
+                "assetPresentation": "FULL",
+                "playbackmode": "STREAM",
+                "countryCode": self.country_code,
+            },
+            {
+                "audioQuality": q,
+                "assetPresentation": "FULL",
+                "playbackMode": "STREAM",
+                "countryCode": self.country_code,
+            },
             # Without country (matches tiddl behavior for playback)
             {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM"},
             {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM"},
@@ -350,24 +360,26 @@ class TidalPlugin(BasePlugin):
                             # Newer shape with base64 manifest
                             manifest_b64 = j.get("manifest")
                             if manifest_b64:
-                                import base64, json as _json
+                                import base64
+                                import json as _json
 
                                 try:
-                                    decoded = base64.b64decode(manifest_b64).decode("utf-8", "ignore")
+                                    decoded = base64.b64decode(manifest_b64).decode(
+                                        "utf-8", "ignore"
+                                    )
                                     mj = _json.loads(decoded)
                                     logger.debug(
                                         "tidal.playbackinfo.manifest",
                                         extra={
                                             "provider": "tidal",
-                                            "mime": j.get("mimeType") or (mj.get("mimeType") if isinstance(mj, dict) else None),
+                                            "mime": j.get("mimeType")
+                                            or (
+                                                mj.get("mimeType") if isinstance(mj, dict) else None
+                                            ),
                                             "corr": self.correlation_id,
                                         },
                                     )
-                                    urls = (
-                                        (mj.get("urls") or [])
-                                        if isinstance(mj, dict)
-                                        else []
-                                    )
+                                    urls = (mj.get("urls") or []) if isinstance(mj, dict) else []
                                     if not urls and isinstance(mj, dict):
                                         urls = mj.get("streamingUrls") or []
                                     if urls:
@@ -387,7 +399,11 @@ class TidalPlugin(BasePlugin):
                         continue
         logger.warning(
             "tidal.playbackinfo.no_url",
-            extra={"provider": "tidal", "track_id": track_id, "corr": self.correlation_id},
+            extra={
+                "provider": "tidal",
+                "track_id": track_id,
+                "corr": self.correlation_id,
+            },
         )
         raise Exception("No playback URL found for track")
 
@@ -458,7 +474,9 @@ class TidalPlugin(BasePlugin):
             )
             return None
 
-    async def _get_stream_info(self, track_id: str, quality: str = "LOSSLESS") -> tuple[list[str], str] | None:
+    async def _get_stream_info(
+        self, track_id: str, quality: str = "LOSSLESS"
+    ) -> tuple[list[str], str] | None:
         """Return (urls, extension) for a track stream if available."""
         q = self._map_quality(quality)
         paths = [
@@ -467,9 +485,24 @@ class TidalPlugin(BasePlugin):
             f"/v1/tracks/{track_id}/playback-info",
         ]
         param_variants = [
-            {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
-            {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM", "countryCode": self.country_code},
-            {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM", "countryCode": self.country_code},
+            {
+                "audioquality": q,
+                "assetpresentation": "FULL",
+                "playbackmode": "STREAM",
+                "countryCode": self.country_code,
+            },
+            {
+                "audioQuality": q,
+                "assetPresentation": "FULL",
+                "playbackmode": "STREAM",
+                "countryCode": self.country_code,
+            },
+            {
+                "audioQuality": q,
+                "assetPresentation": "FULL",
+                "playbackMode": "STREAM",
+                "countryCode": self.country_code,
+            },
             {"audioquality": q, "assetpresentation": "FULL", "playbackmode": "STREAM"},
             {"audioQuality": q, "assetPresentation": "FULL", "playbackmode": "STREAM"},
             {"audioQuality": q, "assetPresentation": "FULL", "playbackMode": "STREAM"},
@@ -513,7 +546,9 @@ class TidalPlugin(BasePlugin):
                         continue
         return None
 
-    async def download_track(self, track_id: str, quality: str, output_dir: Path, verify: bool = False):
+    async def download_track(
+        self, track_id: str, quality: str, output_dir: Path, verify: bool = False
+    ):
         """Downloads a single track, including metadata and cover art."""
         if not self.access_token:
             await self.authenticate()
@@ -546,9 +581,7 @@ class TidalPlugin(BasePlugin):
             if ext.lower() == ".m4a":
                 ffmpeg_path = shutil.which("ffmpeg")
                 if not ffmpeg_path:
-                    raise Exception(
-                        "ffmpeg is required to mux ALAC segments into a valid M4A."
-                    )
+                    raise Exception("ffmpeg is required to mux ALAC segments into a valid M4A.")
                 try:
                     with TemporaryDirectory(prefix="fla_tidal_") as tmpdir:
                         seg_files: list[Path] = []
@@ -612,9 +645,59 @@ class TidalPlugin(BasePlugin):
                     "Install ffmpeg for a safe, bitstream copy mux (no re-encode)."
                 )
         apply_metadata(filepath, metadata)
+        # Upsert into library database with provider IDs unless explicitly disabled
+        try:
+            import os as _os
+
+            if (_os.getenv("FLA_DISABLE_AUTO_DB") or "").strip() != "1":
+                from ..core.config import get_settings as _get_settings
+                from ..core.database import Track as _Track
+                from ..core.database import get_db_connection as _dbc
+                from ..core.database import init_db as _init_db
+                from ..core.database import insert_track as _insert
+                from ..core.database import upsert_track_id as _upsert_id
+
+                _st = _get_settings()
+                _db_path = _st.db_path or (_st.library_path / "flaccid.db")
+                conn = _dbc(_db_path)
+                _init_db(conn)
+                tr = _Track(
+                    title=str(metadata.get("title")),
+                    artist=(str(metadata.get("artist")) if metadata.get("artist") else None),
+                    album=str(metadata.get("album")) if metadata.get("album") else None,
+                    albumartist=(
+                        str(metadata.get("albumartist")) if metadata.get("albumartist") else None
+                    ),
+                    tracknumber=int(metadata.get("tracknumber") or 0),
+                    discnumber=int(metadata.get("discnumber") or 0),
+                    duration=None,
+                    isrc=metadata.get("isrc"),
+                    tidal_id=str(track_id),
+                    path=str(filepath.resolve()),
+                    hash=None,
+                    last_modified=filepath.stat().st_mtime,
+                )
+                rowid = _insert(conn, tr)
+                try:
+                    if rowid is not None:
+                        _upsert_id(conn, rowid, "tidal", str(track_id), preferred=False)
+                        if metadata.get("isrc"):
+                            _upsert_id(
+                                conn,
+                                rowid,
+                                "isrc",
+                                str(metadata.get("isrc")),
+                                preferred=False,
+                            )
+                except Exception:
+                    pass
+                conn.close()
+        except Exception:
+            pass
         if verify:
             try:
                 from ..core.verify import verify_media
+
                 info = verify_media(filepath)
                 if info is not None:
                     console.print(
@@ -622,12 +705,16 @@ class TidalPlugin(BasePlugin):
                         f"{info.get('channels')}ch, duration {info.get('duration')}s"
                     )
                     # Simple expectation check based on extension
-                    codec = (info.get('codec') or '').lower()
-                    if filepath.suffix.lower() == '.m4a' and codec not in {'alac', 'aac', 'mp4a'}:
+                    codec = (info.get("codec") or "").lower()
+                    if filepath.suffix.lower() == ".m4a" and codec not in {
+                        "alac",
+                        "aac",
+                        "mp4a",
+                    }:
                         console.print(
                             f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .m4a output."
                         )
-                    if filepath.suffix.lower() == '.flac' and codec != 'flac':
+                    if filepath.suffix.lower() == ".flac" and codec != "flac":
                         console.print(
                             f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .flac output."
                         )
@@ -645,7 +732,13 @@ class TidalPlugin(BasePlugin):
         )
 
     async def download_album(
-        self, album_id: str, quality: str, output_dir: Path, *, concurrency: int = 4, verify: bool = False
+        self,
+        album_id: str,
+        quality: str,
+        output_dir: Path,
+        *,
+        concurrency: int = 4,
+        verify: bool = False,
     ):
         """Downloads all tracks from a Tidal album concurrently."""
         if not self.access_token:
@@ -702,9 +795,7 @@ class TidalPlugin(BasePlugin):
             await self._get_track_metadata(str(first_id)) if first_id else meta_default
         )
         album_name = (
-            (first_track_meta.get("album") or "Unknown Album")
-            .replace("/", "-")
-            .replace("\\", "-")
+            (first_track_meta.get("album") or "Unknown Album").replace("/", "-").replace("\\", "-")
         )
         artist_name = (
             (first_track_meta.get("albumartist") or "Unknown Artist")
@@ -726,6 +817,56 @@ class TidalPlugin(BasePlugin):
             },
         )
         import asyncio as _asyncio
+
+        # Filter out tracks already in DB by Tidal ID or ISRC to avoid duplicates
+        try:
+            from ..core.config import get_settings as _get_settings
+            from ..core.database import get_db_connection as _dbc
+
+            _st = _get_settings()
+            _db_path = _st.db_path or (_st.library_path / "flaccid.db")
+            conn = _dbc(_db_path)
+            cur = conn.cursor()
+
+            def _exists_by_tid(_tid: str) -> bool:
+                try:
+                    row = cur.execute(
+                        "SELECT 1 FROM tracks WHERE tidal_id=? LIMIT 1", (_tid,)
+                    ).fetchone()
+                    return row is not None
+                except Exception:
+                    return False
+
+            kept = []
+            skipped = 0
+            for t in tracks:
+                tid = _track_id(t)
+                if not tid:
+                    continue
+                tid = str(tid)
+                if _exists_by_tid(tid):
+                    skipped += 1
+                    continue
+                # Try ISRC-based skip by fetching minimal metadata
+                try:
+                    md = await self._get_track_metadata(tid)
+                    isrc = (md or {}).get("isrc") if isinstance(md, dict) else None
+                    if isrc:
+                        row = cur.execute(
+                            "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+                        ).fetchone()
+                        if row is not None:
+                            skipped += 1
+                            continue
+                except Exception:
+                    pass
+                kept.append(t)
+            if skipped > 0:
+                console.print(f"[cyan]Skipping {skipped} tracks already in library[/cyan]")
+            tracks = kept
+            conn.close()
+        except Exception:
+            pass
 
         sem = _asyncio.Semaphore(max(1, int(concurrency or 1)))
 

@@ -44,7 +44,7 @@ def verify_media(path: Path) -> Dict[str, Any] | None:
     data = json.loads(cp.stdout or "{}")
     streams = data.get("streams") or []
     fmt = data.get("format") or {}
-    s = (streams[0] if streams else {})
+    s = streams[0] if streams else {}
     return {
         "codec": s.get("codec_name"),
         "channels": s.get("channels"),
@@ -52,4 +52,3 @@ def verify_media(path: Path) -> Dict[str, Any] | None:
         "bit_rate": int(s.get("bit_rate")) if s.get("bit_rate") else None,
         "duration": float(fmt.get("duration")) if fmt.get("duration") else None,
     }
-

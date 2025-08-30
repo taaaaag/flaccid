@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import os
+from pathlib import Path
 
 from flaccid.core.config import (
     create_default_settings,

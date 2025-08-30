@@ -6,15 +6,16 @@ perform simple local fixes.
 """
 
 import asyncio
+import re
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Dict, Optional, Tuple
 
+import requests
 import typer
 from rich.console import Console
 
 from ..core.metadata import apply_metadata
 from ..plugins.qobuz import QobuzPlugin
-import requests
 
 console = Console()
 app = typer.Typer(
@@ -35,14 +36,17 @@ def _read_basic_tags(p: Path) -> Tuple[Optional[int], Optional[int]]:
         audio = mutagen.File(p, easy=True)
         if not audio:
             return None, None
+
         def _get(key, default=None):
             v = audio.get(key, [default])
             return v[0] if v else default
+
         def _to_int(x):
             try:
                 return int(str(x).split("/")[0]) if x is not None else None
             except Exception:
                 return None
+
         tn = _to_int(_get("tracknumber"))
         dn = _to_int(_get("discnumber"))
         return tn, dn
@@ -50,11 +54,247 @@ def _read_basic_tags(p: Path) -> Tuple[Optional[int], Optional[int]]:
         return None, None
 
 
+@app.command("audit")
+def tag_audit(
+    folder: Path = typer.Argument(..., help="Folder to audit/fix basic tags in"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would change without modifying files"
+    ),
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Fix simple metadata issues (title/artist/album/date/genre)",
+    ),
+    report: Optional[Path] = typer.Option(None, "--report", help="Write CSV report to this path"),
+):
+    """Audit and optionally fix missing basic tags across a folder.
+
+    This is a lightweight wrapper inspired by contrib/legacy/metadata_mafioso.py.
+    """
+    files = _iter_audio_files(folder)
+    if not files:
+        console.print("[yellow]No audio files found.[/yellow]")
+        raise typer.Exit(0)
+    import csv
+
+    import mutagen
+    from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
+
+    def _get_easy(audio, key):
+        try:
+            v = audio.get(key)
+            if isinstance(v, list) and v:
+                return v[0]
+            return v
+        except Exception:
+            return None
+
+    def _fix_easy(audio, path: Path) -> bool:
+        changed = False
+
+        def _ensure(key: str, default: str):
+            nonlocal changed
+            try:
+                v = audio.get(key)
+                empty = (v is None) or (isinstance(v, list) and not v) or (str(v).strip() == "")
+                if empty:
+                    if not dry_run:
+                        audio[key] = default
+                    changed = True
+            except Exception:
+                pass
+
+        _ensure("title", path.stem)
+        _ensure("artist", "Unknown Artist")
+        _ensure("album", "Unknown Album")
+        _ensure("date", "0000")
+        _ensure("genre", "Unknown Genre")
+        if changed and not dry_run:
+            try:
+                audio.save()
+            except Exception:
+                pass
+        return changed
+
+    report_rows = []
+    total = 0
+    fixed = 0
+    for f in files:
+        try:
+            ext = f.suffix.lower()
+            audio = None
+            id3 = None
+            if ext == ".mp3":
+                # Work with ID3 tag directly for ID3-only containers
+                try:
+                    id3 = ID3(f)
+                except Exception:
+                    id3 = ID3()
+            else:
+                audio = mutagen.File(f, easy=True)
+                if not audio:
+                    continue
+            total += 1
+            if report:
+                if id3 is not None:
+                    t = id3.get("TIT2").text[0] if id3.get("TIT2") else None
+                    a = id3.get("TPE1").text[0] if id3.get("TPE1") else None
+                    al = id3.get("TALB").text[0] if id3.get("TALB") else None
+                    g = id3.get("TCON").text[0] if id3.get("TCON") else None
+                    report_rows.append(
+                        {
+                            "file": str(f),
+                            "title": t,
+                            "artist": a,
+                            "album": al,
+                            "date": None,
+                            "genre": g,
+                        }
+                    )
+                else:
+                    report_rows.append(
+                        {
+                            "file": str(f),
+                            "title": _get_easy(audio, "title"),
+                            "artist": _get_easy(audio, "artist"),
+                            "album": _get_easy(audio, "album"),
+                            "date": _get_easy(audio, "date") or _get_easy(audio, "year"),
+                            "genre": _get_easy(audio, "genre"),
+                        }
+                    )
+            if fix or dry_run:
+                if id3 is not None:
+                    # Minimal defaulting for ID3-only files
+                    changed = False
+                    if not id3.get("TIT2"):
+                        if not dry_run:
+                            id3.add(TIT2(encoding=3, text=f.stem))
+                        changed = True
+                    if not id3.get("TPE1"):
+                        if not dry_run:
+                            id3.add(TPE1(encoding=3, text="Unknown Artist"))
+                        changed = True
+                    if not id3.get("TALB"):
+                        if not dry_run:
+                            id3.add(TALB(encoding=3, text="Unknown Album"))
+                        changed = True
+                    if not id3.get("TCON"):
+                        if not dry_run:
+                            id3.add(TCON(encoding=3, text="Unknown Genre"))
+                        changed = True
+                    if changed and not dry_run:
+                        id3.save(f)
+                    if changed:
+                        fixed += 1
+                else:
+                    if _fix_easy(audio, f):
+                        fixed += 1
+        except Exception:
+            continue
+    if report and report_rows:
+        try:
+            with open(report, "w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(
+                    fh, fieldnames=["file", "title", "artist", "album", "date", "genre"]
+                )
+                w.writeheader()
+                w.writerows(report_rows)
+            console.print(f"[cyan]Report written:[/cyan] {report}")
+        except Exception as e:
+            console.print(f"[yellow]Could not write report {report}: {e}[/yellow]")
+    console.print(
+        f"[green]Audit complete[/green]: {total} files inspected; {fixed} {'would be fixed' if dry_run else 'fixed' if fix else 'fixable'}"
+    )
+
+
+def _filter_missing_only(file_path: Path, md: Dict) -> Dict:
+    """Return a copy of metadata with keys removed if file already has non-empty values.
+
+    Uses Mutagen easy tags where possible.
+    """
+    try:
+        import mutagen
+
+        au = mutagen.File(file_path, easy=True)
+        if not au:
+            return md
+
+        def _has(key: str) -> bool:
+            v = au.get(key)
+            if not v:
+                return False
+            val = v[0] if isinstance(v, list) else v
+            return str(val).strip() != ""
+
+        # Map common keys to easy tag names
+        easy_map = {
+            "title": "title",
+            "artist": "artist",
+            "album": "album",
+            "albumartist": "albumartist",
+            "composer": "composer",
+            "tracknumber": "tracknumber",
+            "discnumber": "discnumber",
+            "date": "date",
+            "genre": "genre",
+            "isrc": "isrc",
+        }
+        out = dict(md)
+        for k, ek in easy_map.items():
+            if k in out and _has(ek):
+                out.pop(k, None)
+        return out
+    except Exception:
+        return md
+
+
+def _extract_qobuz_album_id(files: list[Path]) -> Optional[str]:
+    """Try extract Qobuz album id from any file: FLAC, MP3(ID3 TXXX), M4A(freeform)."""
+    for f in files:
+        try:
+            ext = f.suffix.lower()
+            if ext == ".flac":
+                from mutagen.flac import FLAC
+
+                fl = FLAC(f)
+                val = fl.get("QOBUZ_ALBUM_ID") or fl.get("qobuz_album_id")
+                if val:
+                    return str(val[0])
+            elif ext == ".mp3":
+                from mutagen.id3 import ID3
+
+                id3 = ID3(f)
+                for fr in id3.getall("TXXX"):
+                    if getattr(fr, "desc", "").upper() == "QOBUZ_ALBUM_ID" and fr.text:
+                        return str(fr.text[0])
+            elif ext == ".m4a":
+                from mutagen.mp4 import MP4
+
+                mp4 = MP4(f)
+                key = "----:com.apple.iTunes:QOBUZ_ALBUM_ID"
+                if mp4.tags and key in mp4.tags and mp4.tags[key]:
+                    raw = mp4.tags[key][0]
+                    try:
+                        return (
+                            raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                        )
+                    except Exception:
+                        return str(raw)
+        except Exception:
+            continue
+    return None
+
+
 @app.command("fix-artist")
 def tag_fix_artist(
     folder: Path = typer.Argument(..., help="Folder to fix ARTIST tags in"),
     prefer_albumartist: bool = typer.Option(
-        True, "--prefer-albumartist/--no-prefer-albumartist", help="Use ALBUMARTIST if available"
+        True,
+        "--prefer-albumartist/--no-prefer-albumartist",
+        help="Use ALBUMARTIST if available",
+    ),
+    strip_feat: bool = typer.Option(
+        False, "--strip-feat", help="Remove 'feat.'/'ft.'/'featuring' from ARTIST"
     ),
     preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
 ):
@@ -72,6 +312,17 @@ def tag_fix_artist(
     from mutagen.id3 import ID3, TPE1, TPE2, TXXX
     from mutagen.mp4 import MP4
 
+    def _strip_feat(s: Optional[str]) -> Optional[str]:
+        if not s:
+            return s
+        # Cut anything from feat./featuring/ft. marker to end (optionally bracketed)
+        parts = re.split(
+            r"\s*(?:[\(\[\-]\s*)?(?:feat\.?|featuring|ft\.?)[\s:]+",
+            s,
+            flags=re.IGNORECASE,
+        )
+        return parts[0].strip(" -([") if parts else s
+
     for f in files:
         try:
             ext = f.suffix.lower()
@@ -83,12 +334,33 @@ def tag_fix_artist(
                 cur = ", ".join(cur_list) if cur_list else None
                 aa_list = audio.get("albumartist", []) if "albumartist" in audio else []
                 aa = ", ".join(aa_list) if aa_list else None
-                if prefer_albumartist and aa and aa.strip() and aa != cur:
-                    if preview:
-                        console.print(f"FLAC: {f.name} -> ARTIST='{aa}'")
+                # Decide desired value
+                desired = None
+                used_aa_list = False
+                if prefer_albumartist and aa and aa.strip():
+                    desired = aa
+                    used_aa_list = True
+                else:
+                    desired = cur
+                    used_aa_list = False
+                if strip_feat and desired:
+                    if used_aa_list and aa_list:
+                        san_list = [_strip_feat(x) or "" for x in aa_list]
+                        san_list = [x for x in san_list if x]
+                        desired = ", ".join(san_list) if san_list else _strip_feat(desired)
                     else:
-                        # Preserve list semantics for Vorbis comments
-                        audio["artist"] = list(aa_list) if aa_list else [aa]
+                        desired = _strip_feat(desired)
+                if desired and desired != cur:
+                    if preview:
+                        console.print(f"FLAC: {f.name} -> ARTIST='{desired}'")
+                    else:
+                        # Preserve list semantics when possible
+                        if used_aa_list and aa_list:
+                            san_list = [_strip_feat(x) if strip_feat else x for x in aa_list]
+                            san_list = [x for x in san_list if x]
+                            audio["artist"] = san_list if san_list else [desired]
+                        else:
+                            audio["artist"] = [desired]
                         audio.save()
                         changed += 1
             elif ext == ".mp3":
@@ -98,51 +370,62 @@ def tag_fix_artist(
                     id3 = ID3()
                 cur = str(id3.get("TPE1").text[0]) if id3.get("TPE1") else None
                 # ID3: Album Artist is commonly stored in TPE2 or custom TXXX
-                if prefer_albumartist:
-                    aa = None
-                    # Prefer TPE2 if present
-                    if id3.get("TPE2") and getattr(id3.get("TPE2"), "text", None):
+                aa = None
+                if id3.get("TPE2") and getattr(id3.get("TPE2"), "text", None):
+                    try:
+                        aa = str(id3.get("TPE2").text[0])
+                    except Exception:
+                        aa = None
+                if not aa:
+                    for fr in id3.getall("TXXX"):
+                        desc = getattr(fr, "desc", "") or ""
+                        if (
+                            desc.upper().replace(" ", "") in {"ALBUMARTIST", "ALBUMARTISTSORT"}
+                            and fr.text
+                        ):
+                            aa = str(fr.text[0])
+                            break
+                desired = None
+                if prefer_albumartist and aa and aa.strip():
+                    desired = aa
+                else:
+                    desired = cur
+                if strip_feat and desired:
+                    desired = _strip_feat(desired)
+                if desired and desired != cur:
+                    if preview:
+                        console.print(f"MP3: {f.name} -> ARTIST='{desired}'")
+                    else:
+                        # Replace any existing TPE1 instead of adding duplicates
                         try:
-                            aa = str(id3.get("TPE2").text[0])
+                            id3.delall("TPE1")
                         except Exception:
-                            aa = None
-                    # Fallback to common TXXX variants
-                    if not aa:
-                        for fr in id3.getall("TXXX"):
-                            desc = getattr(fr, "desc", "") or ""
-                            if desc.upper().replace(" ", "") in {"ALBUMARTIST", "ALBUMARTISTSORT"} and fr.text:
-                                aa = str(fr.text[0])
-                                break
-                    if aa and aa.strip() and aa != cur:
-                        if preview:
-                            console.print(f"MP3: {f.name} -> ARTIST='{aa}'")
-                        else:
-                            # Replace any existing TPE1 instead of adding duplicates
-                            try:
-                                id3.delall("TPE1")
-                            except Exception:
-                                pass
-                            id3.add(TPE1(encoding=3, text=[aa]))
-                            # Ensure TPE2 mirrors Album Artist if missing
-                            if not id3.get("TPE2"):
-                                id3.add(TPE2(encoding=3, text=[aa]))
-                            # Optionally persist a TXXX marker for interoperability
-                            has_txxx = any(
-                                (getattr(fr, "desc", "") or "").upper() == "ALBUMARTIST" for fr in id3.getall("TXXX")
-                            )
-                            if not has_txxx:
-                                id3.add(TXXX(encoding=3, desc="ALBUMARTIST", text=[aa]))
-                            id3.save(f)
-                            changed += 1
+                            pass
+                        id3.add(TPE1(encoding=3, text=[desired]))
+                        # Ensure TPE2 mirrors Album Artist if missing and we sourced from album artist
+                        if (prefer_albumartist and aa and aa.strip()) and not id3.get("TPE2"):
+                            id3.add(TPE2(encoding=3, text=[aa]))
+                        # Optionally persist a TXXX marker for interoperability
+                        has_txxx = any(
+                            (getattr(fr, "desc", "") or "").upper() == "ALBUMARTIST"
+                            for fr in id3.getall("TXXX")
+                        )
+                        if (prefer_albumartist and aa and aa.strip()) and not has_txxx:
+                            id3.add(TXXX(encoding=3, desc="ALBUMARTIST", text=[aa]))
+                        id3.save(f)
+                        changed += 1
             elif ext == ".m4a":
                 mp4 = MP4(f)
                 cur = (mp4.tags.get("\xa9ART") or [None])[0]
                 aa = (mp4.tags.get("aART") or [None])[0]
-                if prefer_albumartist and aa and aa != cur:
+                desired = aa if (prefer_albumartist and aa and str(aa).strip()) else cur
+                if strip_feat and desired:
+                    desired = _strip_feat(str(desired))
+                if desired and desired != cur:
                     if preview:
-                        console.print(f"M4A: {f.name} -> ARTIST='{aa}'")
+                        console.print(f"M4A: {f.name} -> ARTIST='{desired}'")
                     else:
-                        mp4.tags["\xa9ART"] = [aa]
+                        mp4.tags["\xa9ART"] = [desired]
                         mp4.save()
                         changed += 1
         except Exception:
@@ -158,6 +441,9 @@ def tag_qobuz(
     ),
     folder: Path = typer.Argument(..., help="Local album folder to tag"),
     preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
+    fill_missing: bool = typer.Option(
+        False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
+    ),
 ):
     """Tag a local album folder using Qobuz album metadata.
 
@@ -206,13 +492,16 @@ def tag_qobuz(
                         md.setdefault("disctotal", int(album.get("media_count") or 1))
                     except Exception:
                         pass
+                if fill_missing:
+                    md = _filter_missing_only(fpath, md)
                 if preview:
                     console.print(
                         f"Would tag: [blue]{fpath.name}[/blue] -> ARTIST='{md.get('artist')}', TITLE='{md.get('title')}'"
                     )
                 else:
-                    apply_metadata(fpath, md)
-                    applied += 1
+                    if md:
+                        apply_metadata(fpath, md)
+                        applied += 1
         if not preview:
             console.print(f"[green]✅ Applied metadata to {applied} file(s)[/green]")
 
@@ -228,7 +517,9 @@ def tag_cascade(
         help="Cascade order using any of: tidal, apple, qobuz, beatport, mb",
     ),
     preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
-    fill_missing: bool = typer.Option(False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"),
+    fill_missing: bool = typer.Option(
+        False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
+    ),
 ):
     """Cascade-tag a folder: try Qobuz, then MusicBrainz, then fall back to existing.
 
@@ -253,6 +544,7 @@ def tag_cascade(
             # Read ISRC from tags
             try:
                 import mutagen
+
                 au = mutagen.File(f, easy=True)
                 if au:
                     v = au.get("isrc", [None])[0]
@@ -267,19 +559,8 @@ def tag_cascade(
             # Try Qobuz first (by track mapping, then by ISRC)
             q_done: set[Path] = set()
             if "qobuz" in order_list:
-                # Attempt to infer album id from any QOBUZ_ALBUM_ID on files
-                album_id = None
-                for f in local_files:
-                    try:
-                        from mutagen.flac import FLAC
-                        if f.suffix.lower() == ".flac":
-                            fl = FLAC(f)
-                            val = fl.get("QOBUZ_ALBUM_ID")
-                            if val:
-                                album_id = str(val[0])
-                                break
-                    except Exception:
-                        pass
+                # Attempt to infer album id from any provider tag on files
+                album_id = _extract_qobuz_album_id(local_files)
                 if album_id:
                     try:
                         album = await plugin.api_client.get_album(album_id)
@@ -296,12 +577,17 @@ def tag_cascade(
                             if not f:
                                 continue
                             md = plugin._normalize_metadata(t)
+                            if fill_missing:
+                                md = _filter_missing_only(f, md)
                             if preview:
-                                console.print(f"QOBUZ map: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'")
+                                console.print(
+                                    f"QOBUZ map: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                                )
                             else:
-                                apply_metadata(f, md)
-                                q_done.add(f)
-                                applied += 1
+                                if md:
+                                    apply_metadata(f, md)
+                                    q_done.add(f)
+                                    applied += 1
                     except Exception:
                         pass
                 # Try by ISRC via Qobuz track search
@@ -315,11 +601,16 @@ def tag_cascade(
                         if not t:
                             continue
                         md = plugin._normalize_metadata(t)
+                        if fill_missing:
+                            md = _filter_missing_only(f, md)
                         if preview:
-                            console.print(f"QOBUZ isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'")
+                            console.print(
+                                f"QOBUZ isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                            )
                         else:
-                            apply_metadata(f, md)
-                            applied += 1
+                            if md:
+                                apply_metadata(f, md)
+                                applied += 1
                     except Exception:
                         continue
 
@@ -335,11 +626,16 @@ def tag_cascade(
                             md = await t.search_track_by_isrc(isrc)
                             if not md:
                                 continue
+                            if fill_missing:
+                                md = _filter_missing_only(f, md)
                             if preview:
-                                console.print(f"TIDAL isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'")
+                                console.print(
+                                    f"TIDAL isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                                )
                             else:
-                                apply_metadata(f, md)
-                                applied += 1
+                                if md:
+                                    apply_metadata(f, md)
+                                    applied += 1
                         except Exception:
                             continue
                 except Exception:
@@ -360,11 +656,13 @@ def tag_cascade(
                         if not results:
                             continue
                         r = results[0]
+
                         def _art(url: Optional[str]) -> Optional[str]:
                             if not url:
                                 return None
                             # Try upscale to 1200x1200 when possible
                             return url.replace("100x100", "1200x1200")
+
                         md = {
                             "title": r.get("trackName"),
                             "artist": r.get("artistName"),
@@ -385,14 +683,17 @@ def tag_cascade(
                             # Read current tags and drop keys that are already set
                             try:
                                 import mutagen
+
                                 au = mutagen.File(f, easy=True)
                                 if au:
+
                                     def _has(key: str) -> bool:
                                         v = au.get(key)
                                         if not v:
                                             return False
                                         val = v[0] if isinstance(v, list) else v
-                                        return (str(val).strip() != "")
+                                        return str(val).strip() != ""
+
                                     for k in list(md.keys()):
                                         # Map common keys to easy tag names
                                         easy_map = {
@@ -412,11 +713,16 @@ def tag_cascade(
                                             md.pop(k, None)
                             except Exception:
                                 pass
+                        if fill_missing:
+                            md = _filter_missing_only(f, md)
                         if preview:
-                            console.print(f"APPLE isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'")
+                            console.print(
+                                f"APPLE isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                            )
                         else:
-                            apply_metadata(f, md)
-                            applied += 1
+                            if md:
+                                apply_metadata(f, md)
+                                applied += 1
                     except Exception:
                         continue
 
@@ -433,7 +739,12 @@ def tag_cascade(
                 for f, isrc in file_isrc.items():
                     try:
                         url = "https://musicbrainz.org/ws/2/recording"
-                        resp = requests.get(url, params={"query": f"isrc:{isrc}", "fmt": "json"}, headers=headers, timeout=12)
+                        resp = requests.get(
+                            url,
+                            params={"query": f"isrc:{isrc}", "fmt": "json"},
+                            headers=headers,
+                            timeout=12,
+                        )
                         resp.raise_for_status()
                         data = resp.json() or {}
                         recs = data.get("recordings") or []
@@ -455,11 +766,16 @@ def tag_cascade(
                             md["artist"] = ", ".join(artists)
                         if not md:
                             continue
+                        if fill_missing:
+                            md = _filter_missing_only(f, md)
                         if preview:
-                            console.print(f"MB isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'")
+                            console.print(
+                                f"MB isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                            )
                         else:
-                            apply_metadata(f, md)
-                            applied += 1
+                            if md:
+                                apply_metadata(f, md)
+                                applied += 1
                     except Exception:
                         continue
 

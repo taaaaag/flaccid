@@ -8,6 +8,7 @@ def test_flaccid_qobuz_auto_auth_success(monkeypatch):
 
     # Patch requests.post used by flaccid.commands.config
     import types
+
     from flaccid.commands import config as cfg
 
     class SimpleResp:

@@ -1,7 +1,8 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 from mutagen.id3 import ID3
+
 from flaccid.core.metadata import apply_metadata
 
 

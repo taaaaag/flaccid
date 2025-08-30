@@ -198,11 +198,17 @@ Update tags on existing files using provider metadata or local fixes.
 # Fix verbose ARTIST by using ALBUMARTIST
 fla tag fix-artist "/path/to/Album"
 
-# Tag a local folder from a known Qobuz album
-fla tag qobuz -a i47v490x4a0xb "/path/to/Album"
+# Same, and strip any "feat." from ARTIST
+fla tag fix-artist "/path/to/Album" --strip-feat
+
+# Tag a local folder from a known Qobuz album (fill only missing fields)
+fla tag qobuz -a i47v490x4a0xb "/path/to/Album" --fill-missing
 
 # Cascade metadata: tidal → apple → qobuz → musicbrainz
 fla tag cascade "/path/to/Album" --order "tidal,apple,qobuz,mb" --fill-missing
+
+# Audit/fix basic metadata (report + optional fix)
+fla tag audit "/path/to/Album" --report audit.csv --fix
 ```
 
 - `--fill-missing`: only fills empty tags; does not overwrite non-empty values.
@@ -267,9 +273,59 @@ fla lib enrich-mb --limit 500
 
 Adds `mb:recording` to tracks and album-level IDs (`mb:release`, `mb:release-group`, `upc`).
 
+### Identifiers
+
+Ensure every track has an identifier (ISRC/provider IDs preferred, hash fallback), and view them:
+
+```bash
+fla lib ensure-ids                            # backfill identifiers and set preferred
+fla lib ensure-ids --prefer "isrc,qobuz,tidal,apple,hash:sha1"
+fla lib show-ids --limit 50                   # table of best IDs per track
+fla lib show-ids --limit 50 --json            # JSON output
+```
+
+The preferred order defaults to `mb:recording,isrc,qobuz,tidal,apple,hash:sha1`.
+
+- List tracks relying only on a file hash (good candidates for enrichment):
+
+```bash
+fla lib show-ids --missing --limit 100
+```
+
+### Diagnostics
+
+- Qobuz status (metadata + stream URL probe):
+
+```bash
+fla diag qobuz-status --track-id 168662534 --quality max --allow-mp3
+```
+
+- Tidal status (metadata + stream URL probe):
+
+```bash
+fla diag tidal-status --track-id 86902482 --quality max
+```
+
+### Enrichment Helpers
+
+- Add MusicBrainz IDs by ISRC (most reliable):
+
+```bash
+fla lib enrich-mb --limit 500
+```
+
+- Fuzzy-match MB IDs by title+artist (best effort):
+
+```bash
+fla lib enrich-mb-fuzzy --limit 200 --tolerance 6  # seconds
+```
+```
+
 ### Duplicate Prevention
 
-- `fla get` skips Qobuz tracks already present in the DB (by `qobuz_id`).
+- `fla get` skips tracks already present in the DB using identifiers:
+  - Prefers `ISRC` when available; otherwise falls back to provider IDs (`qobuz_id`, `tidal_id`).
+  - Qobuz album downloads also filter per-track using `ISRC` or `qobuz_id`.
 - Optional: disable DB writes during downloads and rely on `fla lib scan/index`:
 
 ```bash

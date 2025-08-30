@@ -13,11 +13,14 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Iterable, Tuple
+from typing import Any, Iterable, Optional, Tuple
 
 from rich.console import Console
 
 console = Console()
+
+# Python 3.12 deprecates the default datetime adapter; register explicit adapter.
+sqlite3.register_adapter(datetime, lambda d: d.isoformat())
 
 # --- Data Models ---
 
@@ -158,12 +161,8 @@ def init_db(conn: sqlite3.Connection):
             )
             """
         )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_track_ids_track ON track_ids (track_rowid)"
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_track_ids_ns ON track_ids (namespace)"
-        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_ids_track ON track_ids (track_rowid)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_ids_ns ON track_ids (namespace)")
         # Optional album-level identifiers without creating a full albums table
         cur.execute(
             """
@@ -179,6 +178,39 @@ def init_db(conn: sqlite3.Connection):
             )
             """
         )
+        # A convenience view that picks the best available identifier per track.
+        # Preference order: mb:recording > isrc > qobuz > tidal > apple > hash:sha1
+        try:
+            cur.execute(
+                """
+                CREATE VIEW IF NOT EXISTS track_best_identifier AS
+                SELECT
+                    t.id AS track_id,
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1 FROM track_ids i
+                            WHERE i.track_rowid = t.id AND i.namespace = 'mb:recording'
+                        ) THEN 'mb:recording'
+                        WHEN t.isrc IS NOT NULL THEN 'isrc'
+                        WHEN t.qobuz_id IS NOT NULL THEN 'qobuz'
+                        WHEN t.tidal_id IS NOT NULL THEN 'tidal'
+                        WHEN t.apple_id IS NOT NULL THEN 'apple'
+                        WHEN t.hash IS NOT NULL THEN 'hash:sha1'
+                        ELSE NULL
+                    END AS namespace,
+                    COALESCE(
+                        (SELECT external_id FROM track_ids i WHERE i.track_rowid = t.id AND i.namespace = 'mb:recording' LIMIT 1),
+                        t.isrc,
+                        t.qobuz_id,
+                        t.tidal_id,
+                        t.apple_id,
+                        t.hash
+                    ) AS external_id
+                FROM tracks t
+                """
+            )
+        except Exception:
+            pass
         conn.commit()
     except sqlite3.Error as e:
         console.print(f"[red]Database initialization error: {e}[/red]")
@@ -219,9 +251,7 @@ def insert_track(conn: sqlite3.Connection, track: Track) -> Optional[int]:
     columns = ", ".join(track_dict.keys())
     placeholders = ", ".join([f":{key}" for key in track_dict.keys()])
 
-    update_clauses = ", ".join(
-        [f"{key}=excluded.{key}" for key in track_dict if key != "path"]
-    )
+    update_clauses = ", ".join([f"{key}=excluded.{key}" for key in track_dict if key != "path"])
     sql = f"INSERT INTO tracks ({columns}) VALUES ({placeholders}) ON CONFLICT(path) DO UPDATE SET {update_clauses}"
 
     try:
@@ -229,9 +259,7 @@ def insert_track(conn: sqlite3.Connection, track: Track) -> Optional[int]:
         cur.execute(sql, track_dict)
         conn.commit()
         # Always return the row id for the path (lastrowid can be 0 on update)
-        row = cur.execute(
-            "SELECT id FROM tracks WHERE path = ?", (track.path,)
-        ).fetchone()
+        row = cur.execute("SELECT id FROM tracks WHERE path = ?", (track.path,)).fetchone()
         return row[0] if row else None
     except sqlite3.Error as e:
         console.print(f"[red]Failed to insert track {track.path}: {e}[/red]")
@@ -260,11 +288,16 @@ def upsert_track_id(
         )
         conn.commit()
     except sqlite3.Error as e:
-        console.print(f"[yellow]Warning: could not upsert track_id {namespace}:{external_id}: {e}[/yellow]")
+        console.print(
+            f"[yellow]Warning: could not upsert track_id {namespace}:{external_id}: {e}[/yellow]"
+        )
 
 
 def upsert_track_ids(
-    conn: sqlite3.Connection, track_rowid: int, ids: Iterable[Tuple[str, str]], preferred_ns: set[str] | None = None
+    conn: sqlite3.Connection,
+    track_rowid: int,
+    ids: Iterable[Tuple[str, str]],
+    preferred_ns: set[str] | None = None,
 ) -> None:
     preferred_ns = preferred_ns or set()
     for ns, ext_id in ids:
@@ -293,4 +326,6 @@ def upsert_album_id(
         )
         conn.commit()
     except sqlite3.Error as e:
-        console.print(f"[yellow]Warning: could not upsert album_id {namespace}:{external_id}: {e}[/yellow]")
+        console.print(
+            f"[yellow]Warning: could not upsert album_id {namespace}:{external_id}: {e}[/yellow]"
+        )

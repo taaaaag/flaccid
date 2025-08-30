@@ -2,10 +2,10 @@
 Test configuration and utilities
 """
 
-import tempfile
-import shutil
-from pathlib import Path
 import json
+import shutil
+import tempfile
+from pathlib import Path
 
 
 def create_test_flac_file(metadata=None):

@@ -14,13 +14,14 @@ format `{service.lower()}_{key}`.
 """
 
 import os
-import keyring
-import keyring.errors
-from rich.console import Console
-import toml
 from pathlib import Path
 
-from .config import USER_SECRETS_FILE, LOCAL_SECRETS_FILE
+import keyring
+import keyring.errors
+import toml
+from rich.console import Console
+
+from .config import LOCAL_SECRETS_FILE, USER_SECRETS_FILE
 
 console = Console()
 
@@ -32,7 +33,10 @@ SERVICE_KEYS = {
 }
 
 _ENV_OVERRIDES = {
-    ("qobuz", "user_auth_token"): ["FLA_QOBUZ_USER_AUTH_TOKEN", "QOBUZ_USER_AUTH_TOKEN"],
+    ("qobuz", "user_auth_token"): [
+        "FLA_QOBUZ_USER_AUTH_TOKEN",
+        "QOBUZ_USER_AUTH_TOKEN",
+    ],
     ("qobuz", "app_id"): ["FLA_QOBUZ_APP_ID", "QOBUZ_APP_ID"],
     ("qobuz", "app_secret"): ["FLA_QOBUZ_APP_SECRET", "QOBUZ_APP_SECRET"],
     ("tidal", "client_id"): ["FLA_TIDAL_CLIENT_ID", "TIDAL_CLIENT_ID"],
@@ -115,7 +119,12 @@ def get_credentials(service: str, key: str) -> str | None:
             if v:
                 return v
         except Exception as e:
-            if key in {"user_auth_token", "access_token", "refresh_token", "app_secret"}:
+            if key in {
+                "user_auth_token",
+                "access_token",
+                "refresh_token",
+                "app_secret",
+            }:
                 console.print(
                     f"[yellow]Warning:[/yellow] Keyring unavailable for {service}.{key}: {e}"
                 )
@@ -161,9 +170,7 @@ def clear_credentials(service: str) -> None:
             if existing is None:
                 continue
             keyring.delete_password("flaccid", full_key_name)
-        except getattr(
-            keyring.errors, "PasswordDeleteError", Exception
-        ) as e:  # macOS backend
+        except getattr(keyring.errors, "PasswordDeleteError", Exception) as e:  # macOS backend
             try:
                 still_there = keyring.get_password("flaccid", full_key_name) is not None
             except Exception:

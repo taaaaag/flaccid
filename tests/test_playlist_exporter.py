@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from flaccid.core.playlist import PlaylistExporter, MatchResult, PlaylistTrack
+from flaccid.core.playlist import MatchResult, PlaylistExporter, PlaylistTrack
 
 
 def test_playlist_export_m3u(tmp_path: Path):

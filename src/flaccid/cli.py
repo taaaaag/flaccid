@@ -27,7 +27,7 @@ app = typer.Typer(
 )
 
 # Import and register command groups from the `commands` package
-from .commands import config, get, lib, tag, playlist, search
+from .commands import config, diag, get, lib, playlist, search, tag
 from .core.logging_util import setup_logging
 
 app.add_typer(
@@ -35,9 +35,7 @@ app.add_typer(
     name="config",
     help="🔐 Manage authentication, paths, and other settings.",
 )
-app.add_typer(
-    get.app, name="get", help="🚀 Download tracks or albums from supported services."
-)
+app.add_typer(get.app, name="get", help="🚀 Download tracks or albums from supported services.")
 app.add_typer(
     lib.app,
     name="lib",
@@ -48,12 +46,9 @@ app.add_typer(
     name="playlist",
     help="🎶 Match local files against a playlist and export the results.",
 )
-app.add_typer(
-    tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources."
-)
-app.add_typer(
-    search.app, name="search", help="🔎 Search providers for albums or tracks."
-)
+app.add_typer(tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources.")
+app.add_typer(search.app, name="search", help="🔎 Search providers for albums or tracks.")
+app.add_typer(diag.app, name="diag", help="🩺 Diagnostics for providers and local tools.")
 
 
 @app.command("completion")
@@ -79,12 +74,8 @@ def main(
         is_eager=True,  # Process this before any command
     ),
     verbose: bool = typer.Option(None, "--verbose", help="Enable DEBUG-level logging."),
-    quiet: bool = typer.Option(
-        None, "--quiet", help="Reduce logging to warnings and errors."
-    ),
-    json_logs: bool = typer.Option(
-        False, "--json-logs", help="Emit logs as JSON lines to stdout."
-    ),
+    quiet: bool = typer.Option(None, "--quiet", help="Reduce logging to warnings and errors."),
+    json_logs: bool = typer.Option(False, "--json-logs", help="Emit logs as JSON lines to stdout."),
 ):
     """
     FLACCID CLI - A modular FLAC music toolkit.

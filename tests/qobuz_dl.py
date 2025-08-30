@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
+import argparse
+import hashlib
 import os
 import sys
 import time
-import argparse
-import hashlib
-import requests
 import tomllib  # Python 3.11+
 from typing import Optional
+
+import requests
 
 CONFIG_PATH = os.path.expanduser("~/Library/Application Support/streamrip/config.toml")
 API_BASE = "https://www.qobuz.com/api.json/0.2"
@@ -54,17 +55,13 @@ def login_user_token(app_id: str, email: str, password_md5: str, ua: str) -> str
     r = requests.post(url, data=data, timeout=20, headers={"User-Agent": ua})
     r.raise_for_status()
     jd = r.json()
-    token = jd.get("user_auth_token") or (jd.get("user", {}) or {}).get(
-        "user_auth_token"
-    )
+    token = jd.get("user_auth_token") or (jd.get("user", {}) or {}).get("user_auth_token")
     if not token:
         raise RuntimeError(f"Login OK but no user_auth_token in response: {jd}")
     return token
 
 
-def sign_get_file_url(
-    secret: str, format_id: int, track_id: str, intent: str = "stream"
-):
+def sign_get_file_url(secret: str, format_id: int, track_id: str, intent: str = "stream"):
     """
     Streamrip observed recipe:
     endpoint(no slash) + format_id + intent + track_id + FLOAT_TS + secret -> MD5
@@ -184,9 +181,7 @@ def ensure_dir(p: str) -> None:
 
 def atomic_write_download(url: str, out_path: str, ua: str, timeout: int = 60):
     tmp_path = out_path + ".part"
-    with requests.get(
-        url, stream=True, timeout=timeout, headers={"User-Agent": ua}
-    ) as r:
+    with requests.get(url, stream=True, timeout=timeout, headers={"User-Agent": ua}) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length") or 0)
         downloaded = 0
@@ -211,9 +206,7 @@ def atomic_write_download(url: str, out_path: str, ua: str, timeout: int = 60):
 # CLI
 # ----------------------------
 def parse_args():
-    p = argparse.ArgumentParser(
-        description="Minimal Qobuz downloader using Streamrip config."
-    )
+    p = argparse.ArgumentParser(description="Minimal Qobuz downloader using Streamrip config.")
     p.add_argument("qobuz_track_url_or_id", help="Qobuz track URL or numeric ID")
     p.add_argument(
         "-f",
@@ -221,21 +214,15 @@ def parse_args():
         default="29,7,6,27,5",
         help="Comma-separated list of preferred format_ids (default: 29,7,6,27,5)",
     )
-    p.add_argument(
-        "-o", "--outdir", default=".", help="Output directory (default: current dir)"
-    )
+    p.add_argument("-o", "--outdir", default=".", help="Output directory (default: current dir)")
     p.add_argument("--ua", default=UA_DEFAULT, help="Override User-Agent")
-    p.add_argument(
-        "--timeout", type=int, default=60, help="Download timeout seconds (default: 60)"
-    )
+    p.add_argument("--timeout", type=int, default=60, help="Download timeout seconds (default: 60)")
     p.add_argument(
         "--no-metadata",
         action="store_true",
         help="Skip metadata filename and use <track_id>.<ext>",
     )
-    p.add_argument(
-        "--overwrite", action="store_true", help="Overwrite if file already exists"
-    )
+    p.add_argument("--overwrite", action="store_true", help="Overwrite if file already exists")
     return p.parse_args()
 
 
@@ -271,22 +258,16 @@ def main():
         if not cfg["email"] or not cfg["password_or_token"]:
             sys.exit("❌ email_or_userid or password_or_token missing in config.")
         # password_or_token is MD5(password) per your posted config
-        user_token = login_user_token(
-            app_id, cfg["email"], cfg["password_or_token"], ua
-        )
+        user_token = login_user_token(app_id, cfg["email"], cfg["password_or_token"], ua)
 
     # Formats
     try:
-        preferred_formats = [
-            int(x.strip()) for x in args.formats.split(",") if x.strip()
-        ]
+        preferred_formats = [int(x.strip()) for x in args.formats.split(",") if x.strip()]
     except ValueError:
         sys.exit("❌ --formats must be comma-separated integers, e.g., 29,7,6,27,5")
 
     # URL resolution
-    url, fmt, sec_used = get_file_url(
-        app_id, user_token, secrets, track_id, preferred_formats, ua
-    )
+    url, fmt, sec_used = get_file_url(app_id, user_token, secrets, track_id, preferred_formats, ua)
     if not url:
         sys.exit("❌ Could not obtain file URL with provided secrets/formats.")
 

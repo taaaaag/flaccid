@@ -10,11 +10,18 @@ import sqlite3
 from pathlib import Path
 
 import mutagen
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TPOS, TSRC
+from mutagen.id3 import ID3, TSRC
 from mutagen.mp4 import MP4
 from rich.console import Console
 
-from .database import Track, get_all_tracks, insert_track, remove_track_by_path
+from .database import (
+    Track,
+    get_db_connection,
+    get_all_tracks,
+    insert_track,
+    remove_track_by_path,
+    upsert_track_ids,
+)
 
 console = Console()
 
@@ -105,30 +112,28 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
                     album = str(id3.get("TALB").text[0]) or album
                 if id3.get("TRCK"):
                     try:
-                        tracknumber = int(
-                            str(id3.get("TRCK").text[0]).split("/")[0] or 0
-                        )
+                        tracknumber = int(str(id3.get("TRCK").text[0]).split("/")[0] or 0)
                     except Exception:
                         tracknumber = 0
                 if id3.get("TPOS"):
                     try:
-                        discnumber = int(
-                            str(id3.get("TPOS").text[0]).split("/")[0] or 0
-                        )
+                        discnumber = int(str(id3.get("TPOS").text[0]).split("/")[0] or 0)
                     except Exception:
                         discnumber = 0
                 if id3.get("TSRC"):
                     isrc = str(id3.get("TSRC").text[0])
+
                 # Provider IDs from TXXX frames
                 def _get_txxx(desc: str):
                     frames = id3.getall("TXXX")
                     for fr in frames:
                         try:
-                            if getattr(fr, 'desc', '') == desc and fr.text:
+                            if getattr(fr, "desc", "") == desc and fr.text:
                                 return str(fr.text[0])
                         except Exception:
                             continue
                     return None
+
                 qobuz_id = _get_txxx("QOBUZ_TRACK_ID")
                 tidal_id = _get_txxx("TIDAL_TRACK_ID")
                 apple_id = _get_txxx("APPLE_TRACK_ID")
@@ -139,21 +144,27 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
         try:
             if file_path.suffix.lower() == ".m4a":
                 mp4 = MP4(file_path)
+
                 def _get_ff(name: str):
                     key = f"----:com.apple.iTunes:{name}"
                     val = mp4.tags.get(key)
                     if val and isinstance(val, list) and len(val) > 0:
                         raw = val[0]
                         try:
-                            return raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                            return (
+                                raw.decode("utf-8")
+                                if isinstance(raw, (bytes, bytearray))
+                                else str(raw)
+                            )
                         except Exception:
                             return None
                     return None
-                if 'qobuz_id' not in locals() or qobuz_id is None:
+
+                if "qobuz_id" not in locals() or qobuz_id is None:
                     qobuz_id = _get_ff("QOBUZ_TRACK_ID")
-                if 'tidal_id' not in locals() or tidal_id is None:
+                if "tidal_id" not in locals() or tidal_id is None:
                     tidal_id = _get_ff("TIDAL_TRACK_ID")
-                if 'apple_id' not in locals() or apple_id is None:
+                if "apple_id" not in locals() or apple_id is None:
                     apple_id = _get_ff("APPLE_TRACK_ID")
                 if not isrc:
                     isrc = _get_ff("ISRC")
@@ -200,13 +211,44 @@ def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool =
         for path in deleted_paths:
             remove_track_by_path(conn, path)
 
+    # Helper: ensure identifier rows are present for a given Track
+    def _ensure_ids(rowid: int, tr: Track):
+        try:
+            candidates: list[tuple[str, str]] = []
+            if tr.isrc:
+                candidates.append(("isrc", str(tr.isrc)))
+            if tr.qobuz_id:
+                candidates.append(("qobuz", str(tr.qobuz_id)))
+            if tr.tidal_id:
+                candidates.append(("tidal", str(tr.tidal_id)))
+            if tr.apple_id:
+                candidates.append(("apple", str(tr.apple_id)))
+            fh = tr.hash
+            # Fallback: compute hash only when no provider/ISRC present
+            if not candidates and not fh:
+                try:
+                    fh = compute_hash(Path(tr.path)) if tr.path else None
+                    if fh:
+                        conn.execute("UPDATE tracks SET hash = ? WHERE id = ?", (fh, rowid))
+                        conn.commit()
+                except Exception:
+                    fh = None
+            if fh:
+                candidates.append(("hash:sha1", str(fh)))
+            if candidates:
+                upsert_track_ids(conn, rowid, candidates)
+        except Exception:
+            pass
+
     # Process new files
     if new_paths:
         console.print(f"[green]Found {len(new_paths)} new files.[/green]")
         for path_str in new_paths:
             track_data = index_file(Path(path_str), verify=verify)
             if track_data:
-                insert_track(conn, track_data)
+                rid = insert_track(conn, track_data)
+                if rid:
+                    _ensure_ids(rid, track_data)
 
     # Process existing files (check for modifications)
     updated_count = 0
@@ -229,7 +271,9 @@ def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool =
             updated_count += 1
             track_data = index_file(path, verify=verify)
             if track_data:
-                insert_track(conn, track_data)  # Upsert handles the update
+                rid = insert_track(conn, track_data)  # Upsert handles the update
+                if rid:
+                    _ensure_ids(rid, track_data)
 
     if updated_count:
         console.print(f"[cyan]Found {updated_count} modified files.[/cyan]")
@@ -244,20 +288,23 @@ def get_library_stats(db_path: Path) -> dict:
 
     try:
         conn = get_db_connection(db_path)
+        # Ensure schema objects (including view) exist
+        from .database import init_db as _init
+
+        _init(conn)
         cur = conn.cursor()
         stats = {
             "Total Tracks": cur.execute("SELECT COUNT(*) FROM tracks").fetchone()[0],
-            "Total Albums": cur.execute(
-                "SELECT COUNT(DISTINCT album) FROM tracks"
-            ).fetchone()[0],
-            "Total Artists": cur.execute(
-                "SELECT COUNT(DISTINCT artist) FROM tracks"
-            ).fetchone()[0],
+            "Total Albums": cur.execute("SELECT COUNT(DISTINCT album) FROM tracks").fetchone()[0],
+            "Total Artists": cur.execute("SELECT COUNT(DISTINCT artist) FROM tracks").fetchone()[0],
             "Tracks with ISRC": cur.execute(
                 "SELECT COUNT(*) FROM tracks WHERE isrc IS NOT NULL"
             ).fetchone()[0],
             "Tracks with Hash": cur.execute(
                 "SELECT COUNT(*) FROM tracks WHERE hash IS NOT NULL"
+            ).fetchone()[0],
+            "Tracks with Identifier": cur.execute(
+                "SELECT COUNT(*) FROM track_best_identifier WHERE external_id IS NOT NULL"
             ).fetchone()[0],
         }
         conn.close()

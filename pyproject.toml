@@ -40,3 +40,17 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pyright]
+include = ["src/flaccid"]
+exclude = [
+  "tests",
+  "docs",
+  "docs/archive",
+  "contrib",
+  "allfiles",
+  "archive",
+  "src/musictools",
+]
+reportMissingImports = false
+typeCheckingMode = "off"

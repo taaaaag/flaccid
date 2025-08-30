@@ -1,5 +1,5 @@
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -7,7 +7,7 @@ from flaccid.cli import app
 
 
 def _make_mp3_with_id3(path: Path, title: str, artist: str, album: str) -> None:
-    from mutagen.id3 import ID3, TIT2, TPE1, TALB
+    from mutagen.id3 import ID3, TALB, TIT2, TPE1
 
     id3 = ID3()
     id3.add(TIT2(encoding=3, text=title))

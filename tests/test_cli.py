@@ -1,5 +1,6 @@
 import pytest
 from typer.testing import CliRunner
+
 from flaccid.cli import app
 
 runner = CliRunner()

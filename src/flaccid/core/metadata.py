@@ -12,18 +12,8 @@ from urllib.parse import urlparse
 
 import requests
 from mutagen.flac import FLAC, Picture
+from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPOS, TRCK, TXXX, USLT
 from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm  # type: ignore
-from mutagen.id3 import (
-    APIC,
-    ID3,
-    USLT,
-    TXXX,
-    TIT2,
-    TPE1,
-    TALB,
-    TRCK,
-    TPOS,
-)
 from rich.console import Console
 
 console = Console()
@@ -131,13 +121,19 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
         track_total = metadata.get("tracktotal")
         if track is not None or track_total is not None:
             audio.tags["trkn"] = [
-                (int(track) if track is not None else 0, int(track_total) if track_total is not None else 0)
+                (
+                    int(track) if track is not None else 0,
+                    int(track_total) if track_total is not None else 0,
+                )
             ]
         disc = metadata.get("discnumber")
         disc_total = metadata.get("disctotal")
         if disc is not None or disc_total is not None:
             audio.tags["disk"] = [
-                (int(disc) if disc is not None else 0, int(disc_total) if disc_total is not None else 0)
+                (
+                    int(disc) if disc is not None else 0,
+                    int(disc_total) if disc_total is not None else 0,
+                )
             ]
 
         # ISRC as iTunes freeform atom
@@ -166,6 +162,7 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
             audio.tags[f"----:com.apple.iTunes:{name}"] = [
                 MP4FreeForm(str(val).encode("utf-8"), dataformat=0)
             ]
+
         if metadata.get("qobuz_track_id"):
             _set_ff("QOBUZ_TRACK_ID", metadata["qobuz_track_id"])
         if metadata.get("qobuz_album_id"):
@@ -231,9 +228,7 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
         # Cover art
         cover_url = metadata.get("cover_url")
         image_data = (
-            _download_url_data(cover_url)
-            if (cover_url and is_safe_url(cover_url))
-            else None
+            _download_url_data(cover_url) if (cover_url and is_safe_url(cover_url)) else None
         )
         if image_data:
             id3.add(
@@ -248,17 +243,53 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
 
         # Provider IDs as TXXX frames
         if metadata.get("qobuz_track_id"):
-            id3.add(TXXX(encoding=3, desc="QOBUZ_TRACK_ID", text=str(metadata["qobuz_track_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="QOBUZ_TRACK_ID",
+                    text=str(metadata["qobuz_track_id"]),
+                )
+            )
         if metadata.get("qobuz_album_id"):
-            id3.add(TXXX(encoding=3, desc="QOBUZ_ALBUM_ID", text=str(metadata["qobuz_album_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="QOBUZ_ALBUM_ID",
+                    text=str(metadata["qobuz_album_id"]),
+                )
+            )
         if metadata.get("tidal_track_id"):
-            id3.add(TXXX(encoding=3, desc="TIDAL_TRACK_ID", text=str(metadata["tidal_track_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="TIDAL_TRACK_ID",
+                    text=str(metadata["tidal_track_id"]),
+                )
+            )
         if metadata.get("tidal_album_id"):
-            id3.add(TXXX(encoding=3, desc="TIDAL_ALBUM_ID", text=str(metadata["tidal_album_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="TIDAL_ALBUM_ID",
+                    text=str(metadata["tidal_album_id"]),
+                )
+            )
         if metadata.get("apple_track_id"):
-            id3.add(TXXX(encoding=3, desc="APPLE_TRACK_ID", text=str(metadata["apple_track_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="APPLE_TRACK_ID",
+                    text=str(metadata["apple_track_id"]),
+                )
+            )
         if metadata.get("apple_album_id"):
-            id3.add(TXXX(encoding=3, desc="APPLE_ALBUM_ID", text=str(metadata["apple_album_id"])) )
+            id3.add(
+                TXXX(
+                    encoding=3,
+                    desc="APPLE_ALBUM_ID",
+                    text=str(metadata["apple_album_id"]),
+                )
+            )
 
         id3.save(file_path)
         return

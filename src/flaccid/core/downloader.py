@@ -8,11 +8,11 @@ progress bar during the download.
 """
 
 import asyncio
+import logging
+import os
 from pathlib import Path
 
 import aiohttp
-import logging
-import os
 from rich.progress import (
     BarColumn,
     DownloadColumn,
@@ -65,9 +65,7 @@ async def download_file(
                 "•",
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task(
-                    f"Downloading {dest_path.name}", total=total_size
-                )
+                task = progress.add_task(f"Downloading {dest_path.name}", total=total_size)
 
                 # Download the file in chunks and update the progress bar
                 # Append if resuming
