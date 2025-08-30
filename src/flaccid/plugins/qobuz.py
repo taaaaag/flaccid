@@ -128,7 +128,9 @@ class _QobuzApiClient:
             **(params or {}),
         }
         if signed:
-            ts, sig = _sign_request(self.app_secret, endpoint.strip("/"), **request_params)
+            ts, sig = _sign_request(
+                self.app_secret, endpoint.strip("/"), **request_params
+            )
             request_params["request_ts"] = ts
             request_params["request_sig"] = sig
         async with self.session.get(full_url, params=request_params) as response:
@@ -154,7 +156,9 @@ class _QobuzApiClient:
         # Do NOT include app_id/user_auth_token in params; send via headers only
         base_params = {"track_id": track_id, "format_id": format_id, "intent": "stream"}
         last_exc: Exception | None = None
-        secrets_to_try = [self.active_secret] if self.active_secret else list(self.app_secrets)
+        secrets_to_try = (
+            [self.active_secret] if self.active_secret else list(self.app_secrets)
+        )
         for secret in secrets_to_try:
             if not secret:
                 continue
@@ -173,7 +177,9 @@ class _QobuzApiClient:
                 import aiohttp as _aio
 
                 to = _aio.ClientTimeout(total=(timeout or 4.0))
-                async with self.session.get(endpoint, params=params, timeout=to) as response:
+                async with self.session.get(
+                    endpoint, params=params, timeout=to
+                ) as response:
                     response.raise_for_status()
                     jd = await response.json()
                     if isinstance(jd, dict) and jd.get("url"):
@@ -229,7 +235,9 @@ class _QobuzApiClient:
                     if r.status != 200:
                         continue
                     jd = await r.json()
-                    url = (jd or {}).get("url") or ((jd or {}).get("file") or {}).get("url")
+                    url = (jd or {}).get("url") or ((jd or {}).get("file") or {}).get(
+                        "url"
+                    )
                     if url:
                         self.active_secret = secret
                         return
@@ -256,7 +264,9 @@ class _QobuzApiClient:
                     idx = order.index(fmt)
                     self.format_preference = order[idx:]
                     logger = logging.getLogger(__name__)
-                    logger.debug("qobuz.calibrate_formats: preference=%s", self.format_preference)
+                    logger.debug(
+                        "qobuz.calibrate_formats: preference=%s", self.format_preference
+                    )
                     return
             except Exception:
                 continue
@@ -288,7 +298,9 @@ class _QobuzApiClient:
             except Exception:
                 continue
 
-    async def get_playlist(self, playlist_id: str, *, limit: int = 500, offset: int = 0) -> dict:
+    async def get_playlist(
+        self, playlist_id: str, *, limit: int = 500, offset: int = 0
+    ) -> dict:
         # Qobuz playlist metadata (tracks are usually under tracks.items)
         # Prefer auth in headers (X-App-Id, X-User-Auth-Token) without app_id/user_auth_token params.
         if not self.session:
@@ -306,7 +318,9 @@ class _QobuzApiClient:
             response.raise_for_status()
             return await response.json()
 
-    async def search_track(self, query: str, *, limit: int = 5, offset: int = 0) -> dict:
+    async def search_track(
+        self, query: str, *, limit: int = 5, offset: int = 0
+    ) -> dict:
         if not self.session:
             raise RuntimeError("API client must be used within an active session.")
         if self.limiter:
@@ -417,7 +431,11 @@ class QobuzPlugin(BasePlugin):
                 import toml as _toml
 
                 sr_paths = [
-                    Path.home() / "Library" / "Application Support" / "streamrip" / "config.toml",
+                    Path.home()
+                    / "Library"
+                    / "Application Support"
+                    / "streamrip"
+                    / "config.toml",
                     Path.home() / ".config" / "streamrip" / "config.toml",
                 ]
                 for p in sr_paths:
@@ -569,10 +587,16 @@ class QobuzPlugin(BasePlugin):
             "artist": artist,
             "album": _safe_get(album, "title"),
             "albumartist": albumartist,
-            "tracknumber": track_data.get("track_number") or track_data.get("trackNumber"),
-            "tracktotal": _safe_get(album, "tracks_count") or _safe_get(album, "track_count"),
-            "discnumber": track_data.get("media_number") or track_data.get("disc_number") or 1,
-            "disctotal": _safe_get(album, "media_count") or _safe_get(album, "mediaCount") or 1,
+            "tracknumber": track_data.get("track_number")
+            or track_data.get("trackNumber"),
+            "tracktotal": _safe_get(album, "tracks_count")
+            or _safe_get(album, "track_count"),
+            "discnumber": track_data.get("media_number")
+            or track_data.get("disc_number")
+            or 1,
+            "disctotal": _safe_get(album, "media_count")
+            or _safe_get(album, "mediaCount")
+            or 1,
             "date": date_orig,
             "year": year,
             "isrc": track_data.get("isrc"),
@@ -583,8 +607,12 @@ class QobuzPlugin(BasePlugin):
             "lyrics": track_data.get("lyrics"),
             "cover_url": cover_url,
             # Provider identifiers for tagging and DB
-            "qobuz_track_id": (str(track_data.get("id")) if track_data.get("id") else None),
-            "qobuz_album_id": (str(_safe_get(album, "id")) if _safe_get(album, "id") else None),
+            "qobuz_track_id": (
+                str(track_data.get("id")) if track_data.get("id") else None
+            ),
+            "qobuz_album_id": (
+                str(_safe_get(album, "id")) if _safe_get(album, "id") else None
+            ),
         }
         return {k: v for k, v in fields.items() if v is not None}
 
@@ -661,10 +689,14 @@ class QobuzPlugin(BasePlugin):
                 _init_db(conn)
                 tr = _Track(
                     title=str(metadata.get("title")),
-                    artist=(str(metadata.get("artist")) if metadata.get("artist") else None),
+                    artist=(
+                        str(metadata.get("artist")) if metadata.get("artist") else None
+                    ),
                     album=str(metadata.get("album")) if metadata.get("album") else None,
                     albumartist=(
-                        str(metadata.get("albumartist")) if metadata.get("albumartist") else None
+                        str(metadata.get("albumartist"))
+                        if metadata.get("albumartist")
+                        else None
                     ),
                     tracknumber=int(metadata.get("tracknumber") or 0),
                     discnumber=int(metadata.get("discnumber") or 0),
@@ -742,7 +774,9 @@ class QobuzPlugin(BasePlugin):
             raise RuntimeError("Plugin not authenticated or session not started.")
         album_data = await self.api_client.get_album(album_id)
         tracks = album_data.get("tracks", {}).get("items", [])
-        console.print(f"Downloading {len(tracks)} tracks from '{album_data['title']}'...")
+        console.print(
+            f"Downloading {len(tracks)} tracks from '{album_data['title']}'..."
+        )
         logger.info(
             "qobuz.download_album.start",
             extra={
@@ -776,10 +810,16 @@ class QobuzPlugin(BasePlugin):
                     return False
 
             before = len(tracks)
-            tracks = [t for t in tracks if not _exists(str(t.get("id")), (t or {}).get("isrc"))]
+            tracks = [
+                t
+                for t in tracks
+                if not _exists(str(t.get("id")), (t or {}).get("isrc"))
+            ]
             skipped = before - len(tracks)
             if skipped > 0:
-                console.print(f"[cyan]Skipping {skipped} tracks already in library[/cyan]")
+                console.print(
+                    f"[cyan]Skipping {skipped} tracks already in library[/cyan]"
+                )
             conn.close()
         except Exception:
             pass
@@ -790,7 +830,9 @@ class QobuzPlugin(BasePlugin):
         # wasted attempts across concurrent downloads (especially fmt 29).
         try:
             if tracks and getattr(self.api_client, "format_preference", None) is None:
-                first_tid = str(tracks[0]["id"]) if isinstance(tracks[0], dict) else None
+                first_tid = (
+                    str(tracks[0]["id"]) if isinstance(tracks[0], dict) else None
+                )
                 if first_tid:
                     await self.api_client.calibrate_formats_for_track(first_tid)
         except Exception:
@@ -799,7 +841,9 @@ class QobuzPlugin(BasePlugin):
 
         async def _wrapped(tid: str):
             async with sem:
-                return await self.download_track(tid, quality, output_dir, allow_mp3, verify)
+                return await self.download_track(
+                    tid, quality, output_dir, allow_mp3, verify
+                )
 
         tasks = [_wrapped(str(track["id"])) for track in tracks]
         results = await asyncio.gather(*tasks)
@@ -849,7 +893,9 @@ class QobuzPlugin(BasePlugin):
         offset = 500
         while total and len(items) < int(total):
             try:
-                page = await self.api_client.get_playlist(playlist_id, limit=500, offset=offset)
+                page = await self.api_client.get_playlist(
+                    playlist_id, limit=500, offset=offset
+                )
                 t_obj = (page.get("tracks") or {}) if isinstance(page, dict) else {}
                 more = (t_obj.get("items") or []) if isinstance(t_obj, dict) else []
                 if not more:
@@ -882,7 +928,9 @@ class QobuzPlugin(BasePlugin):
             if isinstance(item, dict):
                 if "id" in item:
                     return str(item["id"])
-                inner = item.get("track") if isinstance(item.get("track"), dict) else None
+                inner = (
+                    item.get("track") if isinstance(item.get("track"), dict) else None
+                )
                 if inner and inner.get("id"):
                     return str(inner.get("id"))
             return None
@@ -990,7 +1038,9 @@ class QobuzPlugin(BasePlugin):
             track_id,
             tried,
         )
-        console.print(f"[yellow]Qobuz: no stream URL found for track {track_id}[/yellow]")
+        console.print(
+            f"[yellow]Qobuz: no stream URL found for track {track_id}[/yellow]"
+        )
         return None, None
 
     async def __aenter__(self):
@@ -999,7 +1049,8 @@ class QobuzPlugin(BasePlugin):
         _headers = {
             # Match a common desktop UA like qobuz-dl/qopy does
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) " "Gecko/20100101 Firefox/83.0"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:83.0) "
+                "Gecko/20100101 Firefox/83.0"
             ),
             "X-App-Id": str(self.app_id or ""),
         }
@@ -1017,7 +1068,11 @@ class QobuzPlugin(BasePlugin):
         # Default: 8 requests/second unless overridden via env
         import os
 
-        rps = self._rps if self._rps is not None else int(os.getenv("FLA_QOBUZ_RPS", "8") or "8")
+        rps = (
+            self._rps
+            if self._rps is not None
+            else int(os.getenv("FLA_QOBUZ_RPS", "8") or "8")
+        )
         self._limiter = AsyncRateLimiter(rps, 1.0)
         self.api_client = _QobuzApiClient(
             self.app_id,

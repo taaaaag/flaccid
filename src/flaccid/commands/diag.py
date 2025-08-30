@@ -29,9 +29,7 @@ def diag_qobuz_status(
     allow_mp3: bool = typer.Option(
         False, "--allow-mp3", help="Permit MP3 probe if FLAC unavailable"
     ),
-    json_out: bool = typer.Option(
-        False, "--json", help="Output machine-readable JSON"
-    ),
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
 ):
     """Check Qobuz metadata + download URL health without downloading.
 
@@ -88,11 +86,79 @@ def diag_qobuz_status(
     asyncio.run(_run())
 
 
+@app.command("tidal-status")
+def diag_tidal_status(
+    track_id: str = typer.Option(
+        "86902482", "--track-id", help="Tidal track id to probe"
+    ),
+    quality: str = typer.Option(
+        "max", "--quality", help="Quality hint for probing stream URL"
+    ),
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
+):
+    """Check Tidal metadata + playback manifest health without downloading.
+
+    - Verifies metadata access for a track
+    - Attempts to resolve a playback manifest and extract URLs
+    """
+
+    async def _run():
+        ok_meta = False
+        ok_stream = False
+        report: dict[str, object] = {
+            "provider": "tidal",
+            "track_id": track_id,
+            "quality": quality,
+            "metadata": {"ok": False, "title": None, "isrc": None},
+            "stream": {"ok": False},
+        }
+        t = TidalPlugin()
+        try:
+            await t.authenticate()
+        except Exception as e:
+            if not json_out:
+                console.print(f"[yellow]Auth warning:[/yellow] {e}")
+            # Continue; some endpoints may still be reachable depending on host
+        try:
+            md = await t._get_track_metadata(str(track_id))
+            title = (md or {}).get("title") if isinstance(md, dict) else None
+            isrc = (md or {}).get("isrc") if isinstance(md, dict) else None
+            report["metadata"] = {"ok": bool(title), "title": title, "isrc": isrc}
+            if not json_out:
+                console.print(
+                    f"Metadata: {'OK' if title else 'FAIL'} - title='{title or '-'}', ISRC='{isrc or '-'}'"
+                )
+            ok_meta = bool(title)
+        except Exception as e:
+            if not json_out:
+                console.print(f"[red]Metadata error:[/red] {e}")
+        try:
+            si = await t._get_stream_info(str(track_id), quality)
+            if si and si[0]:
+                report["stream"] = {"ok": True}
+                if not json_out:
+                    console.print("Stream manifest: OK")
+                ok_stream = True
+            else:
+                if not json_out:
+                    console.print("Stream manifest: FAIL")
+        except Exception as e:
+            if not json_out:
+                console.print(f"[yellow]Stream probe error:[/yellow] {e}")
+
+        if json_out:
+            typer.echo(json.dumps(report))
+        if not ok_meta:
+            raise typer.Exit(2)
+        if not ok_stream:
+            raise typer.Exit(3)
+
+    asyncio.run(_run())
+
+
 @app.command("tools")
 def diag_tools(
-    json_out: bool = typer.Option(
-        False, "--json", help="Output machine-readable JSON"
-    ),
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
 ):
     """Check presence of external tools and basic HTTP connectivity."""
     import shutil
@@ -172,9 +238,13 @@ def diag_all_status(
                 isrc = (t or {}).get("isrc") if isinstance(t, dict) else None
                 q["metadata"] = {"ok": bool(title), "title": title, "isrc": isrc}
             with suppress(Exception):
-                fmt, url = await qp._find_stream(qobuz_track, quality, allow_mp3=allow_mp3)
+                fmt, url = await qp._find_stream(
+                    qobuz_track, quality, allow_mp3=allow_mp3
+                )
                 q["stream"] = {"ok": bool(url), "format_id": fmt}
-            q["ok"] = bool(q.get("metadata", {}).get("ok")) and bool(q.get("stream", {}).get("ok"))
+            q["ok"] = bool(q.get("metadata", {}).get("ok")) and bool(
+                q.get("stream", {}).get("ok")
+            )
             report["qobuz"] = q
 
         t = TidalPlugin()
@@ -189,7 +259,9 @@ def diag_all_status(
         with suppress(Exception):
             si = await t._get_stream_info(str(tidal_track), quality)
             td["stream"] = {"ok": bool(si and si[0])}
-        td["ok"] = bool(td.get("metadata", {}).get("ok")) and bool(td.get("stream", {}).get("ok"))
+        td["ok"] = bool(td.get("metadata", {}).get("ok")) and bool(
+            td.get("stream", {}).get("ok")
+        )
         report["tidal"] = td
 
         if json_out:
@@ -211,9 +283,7 @@ def diag_tidal_status(
     quality: str = typer.Option(
         "max", "--quality", help="Quality hint for probing stream URL"
     ),
-    json_out: bool = typer.Option(
-        False, "--json", help="Output machine-readable JSON"
-    ),
+    json_out: bool = typer.Option(False, "--json", help="Output machine-readable JSON"),
 ):
     """Check Tidal metadata + stream URL health without downloading."""
 

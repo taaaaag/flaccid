@@ -46,7 +46,11 @@ class TidalPlugin(BasePlugin):
         self.session = requests.Session()
         self.correlation_id = correlation_id
         self._rps = rps
-        _rps = self._rps if self._rps is not None else int(os.getenv("FLA_TIDAL_RPS", "5") or "5")
+        _rps = (
+            self._rps
+            if self._rps is not None
+            else int(os.getenv("FLA_TIDAL_RPS", "5") or "5")
+        )
         self._limiter = AsyncRateLimiter(_rps, 1.0)
         self.country_code = os.getenv("FLA_TIDAL_COUNTRY", "US")
 
@@ -91,7 +95,9 @@ class TidalPlugin(BasePlugin):
         response = self.session.get(url, headers=headers, timeout=10)
 
         if response.status_code == 401:
-            console.print("[yellow]Tidal access token expired. Attempting to refresh...[/yellow]")
+            console.print(
+                "[yellow]Tidal access token expired. Attempting to refresh...[/yellow]"
+            )
             await self._refresh_access_token()
             response = self.session.get(url, headers=headers, timeout=10)
 
@@ -105,7 +111,9 @@ class TidalPlugin(BasePlugin):
 
         response.raise_for_status()
         user_data = response.json()
-        console.print(f"[green]✅ Authenticated as Tidal user: {user_data.get('email')}[/green]")
+        console.print(
+            f"[green]✅ Authenticated as Tidal user: {user_data.get('email')}[/green]"
+        )
         logger.debug(
             "tidal.authenticate ok",
             extra={
@@ -173,7 +181,9 @@ class TidalPlugin(BasePlugin):
         main_names = [a.get("name") for a in artists if (a or {}).get("type") == "MAIN"]
         if not main_names:
             main_names = [a.get("name") for a in artists if a.get("name")]
-        artist_name = ", ".join([n for n in main_names if n]) or data.get("artist", {}).get("name")
+        artist_name = ", ".join([n for n in main_names if n]) or data.get(
+            "artist", {}
+        ).get("name")
 
         # Normalize album and album artist
         album_info = data.get("album") or {}
@@ -187,15 +197,21 @@ class TidalPlugin(BasePlugin):
         # Track/disc numbers and totals
         track_no = data.get("trackNumber") or data.get("track_number")
         disc_no = data.get("volumeNumber") or data.get("discNumber")
-        track_total = album_info.get("numberOfTracks") or album_info.get("numberOfTracksOnMedia")
-        disc_total = album_info.get("numberOfVolumes") or album_info.get("numberOfMedia")
+        track_total = album_info.get("numberOfTracks") or album_info.get(
+            "numberOfTracksOnMedia"
+        )
+        disc_total = album_info.get("numberOfVolumes") or album_info.get(
+            "numberOfMedia"
+        )
 
         # Dates
         release_date = album_info.get("releaseDate") or data.get("streamStartDate")
 
         # Cover URL: handle OpenAPI imageCover and legacy cover string
         cover_url = None
-        image_cover = (album_info.get("imageCover") or {}) if isinstance(album_info, dict) else {}
+        image_cover = (
+            (album_info.get("imageCover") or {}) if isinstance(album_info, dict) else {}
+        )
         if isinstance(image_cover, dict):
             large = image_cover.get("large") or {}
             cover_url = large.get("url") or image_cover.get("url")
@@ -205,7 +221,9 @@ class TidalPlugin(BasePlugin):
                 # Convert dashed/hyphenated id into path segments
                 # e.g., 0b6898bf-a492-4ac7-8158-465bae8943fb -> 0b6898bf/a492/4ac7/8158/465bae8943fb
                 pathish = cover_id.replace("-", "/")
-                cover_url = f"https://resources.tidal.com/images/{pathish}/1280x1280.jpg"
+                cover_url = (
+                    f"https://resources.tidal.com/images/{pathish}/1280x1280.jpg"
+                )
 
         return {
             "title": data.get("title"),
@@ -350,10 +368,16 @@ class TidalPlugin(BasePlugin):
                         if isinstance(j, dict):
                             # Legacy shape
                             if "track_streams" in j:
-                                urls = (j.get("track_streams") or [{}])[0].get("urls") or []
+                                urls = (j.get("track_streams") or [{}])[0].get(
+                                    "urls"
+                                ) or []
                                 if urls:
                                     return urls[0]
-                            if "urls" in j and isinstance(j["urls"], list) and j["urls"]:
+                            if (
+                                "urls" in j
+                                and isinstance(j["urls"], list)
+                                and j["urls"]
+                            ):
                                 return j["urls"][0]
                             # Newer shape with base64 manifest
                             manifest_b64 = j.get("manifest")
@@ -372,12 +396,18 @@ class TidalPlugin(BasePlugin):
                                             "provider": "tidal",
                                             "mime": j.get("mimeType")
                                             or (
-                                                mj.get("mimeType") if isinstance(mj, dict) else None
+                                                mj.get("mimeType")
+                                                if isinstance(mj, dict)
+                                                else None
                                             ),
                                             "corr": self.correlation_id,
                                         },
                                     )
-                                    urls = (mj.get("urls") or []) if isinstance(mj, dict) else []
+                                    urls = (
+                                        (mj.get("urls") or [])
+                                        if isinstance(mj, dict)
+                                        else []
+                                    )
                                     if not urls and isinstance(mj, dict):
                                         urls = mj.get("streamingUrls") or []
                                     if urls:
@@ -528,13 +558,27 @@ class TidalPlugin(BasePlugin):
                         # Direct URLs in legacy shapes
                         if isinstance(j, dict):
                             if "track_streams" in j:
-                                urls = (j.get("track_streams") or [{}])[0].get("urls") or []
+                                urls = (j.get("track_streams") or [{}])[0].get(
+                                    "urls"
+                                ) or []
                                 if urls:
-                                    ext = ".flac" if any("flac" in u for u in urls) else ".m4a"
+                                    ext = (
+                                        ".flac"
+                                        if any("flac" in u for u in urls)
+                                        else ".m4a"
+                                    )
                                     return urls, ext
-                            if "urls" in j and isinstance(j["urls"], list) and j["urls"]:
+                            if (
+                                "urls" in j
+                                and isinstance(j["urls"], list)
+                                and j["urls"]
+                            ):
                                 urls = j["urls"]
-                                ext = ".flac" if any("flac" in u for u in urls) else ".m4a"
+                                ext = (
+                                    ".flac"
+                                    if any("flac" in u for u in urls)
+                                    else ".m4a"
+                                )
                                 return urls, ext
                             # Parse manifest shapes
                             parsed = self._parse_track_manifest(j)
@@ -579,7 +623,9 @@ class TidalPlugin(BasePlugin):
             if ext.lower() == ".m4a":
                 ffmpeg_path = shutil.which("ffmpeg")
                 if not ffmpeg_path:
-                    raise Exception("ffmpeg is required to mux ALAC segments into a valid M4A.")
+                    raise Exception(
+                        "ffmpeg is required to mux ALAC segments into a valid M4A."
+                    )
                 try:
                     with TemporaryDirectory(prefix="fla_tidal_") as tmpdir:
                         seg_files: list[Path] = []
@@ -661,10 +707,14 @@ class TidalPlugin(BasePlugin):
                 _init_db(conn)
                 tr = _Track(
                     title=str(metadata.get("title")),
-                    artist=(str(metadata.get("artist")) if metadata.get("artist") else None),
+                    artist=(
+                        str(metadata.get("artist")) if metadata.get("artist") else None
+                    ),
                     album=str(metadata.get("album")) if metadata.get("album") else None,
                     albumartist=(
-                        str(metadata.get("albumartist")) if metadata.get("albumartist") else None
+                        str(metadata.get("albumartist"))
+                        if metadata.get("albumartist")
+                        else None
                     ),
                     tracknumber=int(metadata.get("tracknumber") or 0),
                     discnumber=int(metadata.get("discnumber") or 0),
@@ -793,7 +843,9 @@ class TidalPlugin(BasePlugin):
             await self._get_track_metadata(str(first_id)) if first_id else meta_default
         )
         album_name = (
-            (first_track_meta.get("album") or "Unknown Album").replace("/", "-").replace("\\", "-")
+            (first_track_meta.get("album") or "Unknown Album")
+            .replace("/", "-")
+            .replace("\\", "-")
         )
         artist_name = (
             (first_track_meta.get("albumartist") or "Unknown Artist")
@@ -860,7 +912,9 @@ class TidalPlugin(BasePlugin):
                     pass
                 kept.append(t)
             if skipped > 0:
-                console.print(f"[cyan]Skipping {skipped} tracks already in library[/cyan]")
+                console.print(
+                    f"[cyan]Skipping {skipped} tracks already in library[/cyan]"
+                )
             tracks = kept
             conn.close()
         except Exception:

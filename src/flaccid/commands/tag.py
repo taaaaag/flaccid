@@ -67,7 +67,9 @@ def tag_audit(
         "--fix",
         help="Fix simple metadata issues (title/artist/album/date/genre)",
     ),
-    report: Optional[Path] = typer.Option(None, "--report", help="Write CSV report to this path"),
+    report: Optional[Path] = typer.Option(
+        None, "--report", help="Write CSV report to this path"
+    ),
 ):
     """Audit and optionally fix missing basic tags across a folder.
 
@@ -95,7 +97,11 @@ def tag_audit(
             nonlocal changed
             try:
                 v = audio.get(key)
-                empty = (v is None) or (isinstance(v, list) and not v) or (str(v).strip() == "")
+                empty = (
+                    (v is None)
+                    or (isinstance(v, list) and not v)
+                    or (str(v).strip() == "")
+                )
                 if empty:
                     if not dry_run:
                         audio[key] = default
@@ -157,7 +163,8 @@ def tag_audit(
                             "title": _get_easy(audio, "title"),
                             "artist": _get_easy(audio, "artist"),
                             "album": _get_easy(audio, "album"),
-                            "date": _get_easy(audio, "date") or _get_easy(audio, "year"),
+                            "date": _get_easy(audio, "date")
+                            or _get_easy(audio, "year"),
                             "genre": _get_easy(audio, "genre"),
                         }
                     )
@@ -275,7 +282,9 @@ def _extract_qobuz_album_id(files: list[Path]) -> Optional[str]:
                     raw = mp4.tags[key][0]
                     try:
                         return (
-                            raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                            raw.decode("utf-8")
+                            if isinstance(raw, (bytes, bytearray))
+                            else str(raw)
                         )
                     except Exception:
                         return str(raw)
@@ -295,7 +304,9 @@ def tag_fix_artist(
     strip_feat: bool = typer.Option(
         False, "--strip-feat", help="Remove 'feat.'/'ft.'/'featuring' from ARTIST"
     ),
-    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
+    preview: bool = typer.Option(
+        False, "--preview", help="Show changes without writing"
+    ),
 ):
     """Replace verbose ARTIST tags with a cleaner value for all files in folder.
 
@@ -345,7 +356,9 @@ def tag_fix_artist(
                     if used_aa_list and aa_list:
                         san_list = [_strip_feat(x) or "" for x in aa_list]
                         san_list = [x for x in san_list if x]
-                        desired = ", ".join(san_list) if san_list else _strip_feat(desired)
+                        desired = (
+                            ", ".join(san_list) if san_list else _strip_feat(desired)
+                        )
                     else:
                         desired = _strip_feat(desired)
                 if desired and desired != cur:
@@ -354,7 +367,9 @@ def tag_fix_artist(
                     else:
                         # Preserve list semantics when possible
                         if used_aa_list and aa_list:
-                            san_list = [_strip_feat(x) if strip_feat else x for x in aa_list]
+                            san_list = [
+                                _strip_feat(x) if strip_feat else x for x in aa_list
+                            ]
                             san_list = [x for x in san_list if x]
                             audio["artist"] = san_list if san_list else [desired]
                         else:
@@ -378,7 +393,8 @@ def tag_fix_artist(
                     for fr in id3.getall("TXXX"):
                         desc = getattr(fr, "desc", "") or ""
                         if (
-                            desc.upper().replace(" ", "") in {"ALBUMARTIST", "ALBUMARTISTSORT"}
+                            desc.upper().replace(" ", "")
+                            in {"ALBUMARTIST", "ALBUMARTISTSORT"}
                             and fr.text
                         ):
                             aa = str(fr.text[0])
@@ -401,7 +417,9 @@ def tag_fix_artist(
                             pass
                         id3.add(TPE1(encoding=3, text=[desired]))
                         # Ensure TPE2 mirrors Album Artist if missing and we sourced from album artist
-                        if (prefer_albumartist and aa and aa.strip()) and not id3.get("TPE2"):
+                        if (prefer_albumartist and aa and aa.strip()) and not id3.get(
+                            "TPE2"
+                        ):
                             id3.add(TPE2(encoding=3, text=[aa]))
                         # Optionally persist a TXXX marker for interoperability
                         has_txxx = any(
@@ -438,7 +456,9 @@ def tag_qobuz(
         ..., "--album-id", "-a", help="Qobuz album ID to source metadata from"
     ),
     folder: Path = typer.Argument(..., help="Local album folder to tag"),
-    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
+    preview: bool = typer.Option(
+        False, "--preview", help="Show changes without writing"
+    ),
     fill_missing: bool = typer.Option(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
@@ -506,6 +526,130 @@ def tag_qobuz(
     asyncio.run(_run())
 
 
+@app.command("apple")
+def tag_apple(
+    album_id: int = typer.Option(
+        ...,
+        "--album-id",
+        "-a",
+        help="Apple collection (album) ID to source metadata from",
+    ),
+    folder: Path = typer.Argument(..., help="Local album folder to tag"),
+    preview: bool = typer.Option(
+        False, "--preview", help="Show changes without writing"
+    ),
+    fill_missing: bool = typer.Option(
+        False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
+    ),
+):
+    """Tag a local album folder using Apple iTunes album metadata.
+
+    Fetches album tracks via iTunes Lookup API (entity=song) and matches by (disc, track).
+    """
+
+    def _normalize_art(url: str | None) -> str | None:
+        if not url:
+            return None
+        # Upgrade common artworkUrl100 pattern to 1200x1200
+        try:
+            return (
+                str(url)
+                .replace("100x100bb", "1200x1200bb")
+                .replace("100x100-999", "1200x1200-999")
+            )
+        except Exception:
+            return url
+
+    async def _run():
+        local_files = _iter_audio_files(folder)
+        if not local_files:
+            console.print("[yellow]No audio files found.[/yellow]")
+            return
+        index: Dict[Tuple[int, int], Path] = {}
+        for f in local_files:
+            tn, dn = _read_basic_tags(f)
+            if tn is None:
+                continue
+            dn = dn or 1
+            key = (int(dn), int(tn))
+            if key not in index:
+                index[key] = f
+
+        # Fetch album + tracks from iTunes Lookup API
+        import requests as _requests
+
+        try:
+            resp = _requests.get(
+                "https://itunes.apple.com/lookup",
+                params={"id": int(album_id), "entity": "song", "limit": 500},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json() or {}
+        except Exception as e:
+            raise typer.Exit(f"[red]Apple lookup failed:[/red] {e}")
+
+        results = data.get("results") or []
+        album_info = (
+            results[0]
+            if results and results[0].get("wrapperType") == "collection"
+            else None
+        )
+        tracks = [r for r in results if r.get("wrapperType") == "track"]
+        if not tracks:
+            console.print("[red]No tracks found for Apple album.[/red]")
+            return
+
+        applied = 0
+        for t in tracks:
+            try:
+                tn = int(t.get("trackNumber") or 0)
+                dn = int(t.get("discNumber") or 1)
+            except Exception:
+                tn, dn = 0, 1
+            if tn <= 0:
+                continue
+            fpath = index.get((dn, tn))
+            if not fpath:
+                continue
+            md = {
+                "title": t.get("trackName"),
+                "artist": t.get("artistName"),
+                "album": t.get("collectionName"),
+                "albumartist": (album_info or {}).get("artistName")
+                or t.get("artistName"),
+                "tracknumber": tn,
+                "discnumber": dn,
+                "tracktotal": (
+                    album_info.get("trackCount")
+                    if isinstance(album_info, dict)
+                    else None
+                ),
+                "disctotal": None,
+                "date": (album_info or {}).get("releaseDate"),
+                "isrc": t.get("isrc") or None,
+                "cover_url": _normalize_art(
+                    t.get("artworkUrl100") or (album_info or {}).get("artworkUrl100")
+                ),
+                "apple_track_id": t.get("trackId"),
+                "apple_album_id": t.get("collectionId"),
+            }
+            if fill_missing:
+                md = _filter_missing_only(fpath, md)
+            if preview:
+                console.print(
+                    f"Would tag: [blue]{fpath.name}[/blue] -> ARTIST='{md.get('artist')}', TITLE='{md.get('title')}'"
+                )
+            else:
+                if md:
+                    apply_metadata(fpath, md)
+                    applied += 1
+        if not preview:
+            console.print(f"[green]✅ Applied metadata to {applied} file(s)[/green]")
+
+    asyncio.run(_run())
+
+
 @app.command("cascade")
 def tag_cascade(
     folder: Path = typer.Argument(..., help="Local album folder to tag"),
@@ -514,7 +658,9 @@ def tag_cascade(
         "--order",
         help="Cascade order using any of: tidal, apple, qobuz, beatport, mb",
     ),
-    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
+    preview: bool = typer.Option(
+        False, "--preview", help="Show changes without writing"
+    ),
     fill_missing: bool = typer.Option(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
@@ -565,8 +711,12 @@ def tag_cascade(
                         tracks = (album.get("tracks") or {}).get("items") or []
                         for t in tracks:
                             try:
-                                tn = int(t.get("track_number") or t.get("trackNumber") or 0)
-                                dn = int(t.get("media_number") or t.get("disc_number") or 1)
+                                tn = int(
+                                    t.get("track_number") or t.get("trackNumber") or 0
+                                )
+                                dn = int(
+                                    t.get("media_number") or t.get("disc_number") or 1
+                                )
                             except Exception:
                                 tn, dn = 0, 1
                             if tn <= 0:
@@ -665,7 +815,8 @@ def tag_cascade(
                             "title": r.get("trackName"),
                             "artist": r.get("artistName"),
                             "album": r.get("collectionName"),
-                            "albumartist": r.get("collectionArtistName") or r.get("artistName"),
+                            "albumartist": r.get("collectionArtistName")
+                            or r.get("artistName"),
                             "composer": r.get("composerName"),
                             "tracknumber": r.get("trackNumber"),
                             "discnumber": r.get("discNumber"),
@@ -726,7 +877,9 @@ def tag_cascade(
 
             # Beatport (placeholder)
             if "beatport" in order_list:
-                console.print("[yellow]Beatport lookup not implemented yet; skipping.[/yellow]")
+                console.print(
+                    "[yellow]Beatport lookup not implemented yet; skipping.[/yellow]"
+                )
 
             # MusicBrainz fallback by ISRC
             if "mb" in order_list:
@@ -778,6 +931,8 @@ def tag_cascade(
                         continue
 
         if not preview:
-            console.print(f"[green]✅ Cascade tagging applied to {applied} file(s)[/green]")
+            console.print(
+                f"[green]✅ Cascade tagging applied to {applied} file(s)[/green]"
+            )
 
     asyncio.run(_run())

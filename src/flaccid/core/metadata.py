@@ -228,7 +228,9 @@ def apply_metadata(file_path: Path, metadata: dict) -> None:
         # Cover art
         cover_url = metadata.get("cover_url")
         image_data = (
-            _download_url_data(cover_url) if (cover_url and is_safe_url(cover_url)) else None
+            _download_url_data(cover_url)
+            if (cover_url and is_safe_url(cover_url))
+            else None
         )
         if image_data:
             id3.add(

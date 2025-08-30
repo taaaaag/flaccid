@@ -54,8 +54,12 @@ DEFAULT_QOBUZ_APP_ID = "798273057"
 class FlaccidSettings(BaseModel):
     """A Pydantic model that defines and validates all application settings."""
 
-    library_path: Path = Field(default_factory=lambda: Path.home() / "Music" / "FLACCID")
-    download_path: Path = Field(default_factory=lambda: Path.home() / "Downloads" / "FLACCID")
+    library_path: Path = Field(
+        default_factory=lambda: Path.home() / "Music" / "FLACCID"
+    )
+    download_path: Path = Field(
+        default_factory=lambda: Path.home() / "Downloads" / "FLACCID"
+    )
     db_path: Optional[Path] = None
 
     # Service API settings
@@ -92,7 +96,10 @@ def get_settings() -> FlaccidSettings:
             # If a project-local settings file exists, load and overlay explicitly
             if LOCAL_SETTINGS_FILE.exists():
                 try:
-                    local_data = toml.loads(LOCAL_SETTINGS_FILE.read_text(encoding="utf-8")) or {}
+                    local_data = (
+                        toml.loads(LOCAL_SETTINGS_FILE.read_text(encoding="utf-8"))
+                        or {}
+                    )
                     if isinstance(local_data, dict):
                         config_dict.update(local_data)
                 except Exception:

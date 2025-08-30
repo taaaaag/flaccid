@@ -52,7 +52,11 @@ def search_qobuz(
                     data = await plugin.api_client.search_track(query, limit=limit)
                 else:
                     data = await plugin.api_client.search_track(query, limit=limit)
-                items = (data.get("tracks") or {}).get("items") if isinstance(data, dict) else []
+                items = (
+                    (data.get("tracks") or {}).get("items")
+                    if isinstance(data, dict)
+                    else []
+                )
                 rows = []
                 for t in items or []:
                     rows.append(
@@ -97,7 +101,11 @@ def search_qobuz(
                 data = await plugin._QobuzApiClient__class__ if False else None  # type: ignore
                 # Use internal request
                 data = await plugin.api_client._request("/album/search", {"query": query, "limit": limit})  # type: ignore
-                items = (data.get("albums") or {}).get("items") if isinstance(data, dict) else []
+                items = (
+                    (data.get("albums") or {}).get("items")
+                    if isinstance(data, dict)
+                    else []
+                )
                 rows = []
                 for a in items or []:
                     rows.append(
@@ -110,7 +118,8 @@ def search_qobuz(
                                 else None
                             ),
                             "upc": a.get("upc"),
-                            "date": a.get("release_date_original") or a.get("released_at"),
+                            "date": a.get("release_date_original")
+                            or a.get("released_at"),
                         }
                     )
                 if json_output:
@@ -212,7 +221,9 @@ def search_tidal(
             import json as _json
 
             typer.echo(
-                _json.dumps({"provider": "tidal", "type": type, "query": query, "results": rows})
+                _json.dumps(
+                    {"provider": "tidal", "type": type, "query": query, "results": rows}
+                )
             )
         else:
             cols = (
@@ -281,7 +292,9 @@ def search_apple(
             import json as _json
 
             typer.echo(
-                _json.dumps({"provider": "apple", "type": type, "query": query, "results": rows})
+                _json.dumps(
+                    {"provider": "apple", "type": type, "query": query, "results": rows}
+                )
             )
         else:
             cols = (
