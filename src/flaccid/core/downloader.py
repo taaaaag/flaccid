@@ -7,7 +7,6 @@ efficient async network requests and `rich` to display a user-friendly
 progress bar during the download.
 """
 
-import asyncio
 import logging
 import os
 from pathlib import Path

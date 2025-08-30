@@ -7,7 +7,6 @@ by free text, ISRC, or UPC.
 
 import asyncio
 import re
-from typing import Optional
 
 import typer
 from rich.console import Console

@@ -6,11 +6,12 @@ and defines global options like --version and --verbose.
 """
 
 import asyncio
-import logging
 
 import typer
 from rich.console import Console
 from rich.traceback import install
+from .commands import config, diag, get, lib, playlist, search, tag
+from .core.logging_util import setup_logging
 
 # Install a rich traceback handler for beautiful, readable exceptions
 install(show_locals=False)
@@ -25,10 +26,6 @@ app = typer.Typer(
     no_args_is_help=True,  # Show help if no command is provided
     pretty_exceptions_enable=False,  # Disable Typer's default handler to use Rich's
 )
-
-# Import and register command groups from the `commands` package
-from .commands import config, diag, get, lib, playlist, search, tag
-from .core.logging_util import setup_logging
 
 app.add_typer(
     config.app,

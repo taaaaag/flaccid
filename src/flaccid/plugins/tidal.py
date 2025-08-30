@@ -6,10 +6,10 @@ for the Tidal streaming service. It handles the OAuth 2.0 device authorization
 flow, token refreshing, and API calls for track and album data.
 """
 
-import asyncio
 import logging
 import shutil
 import subprocess
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -23,7 +23,6 @@ from ..core.metadata import apply_metadata
 from .base import BasePlugin
 
 logger = logging.getLogger(__name__)
-import os
 
 from ..core.ratelimit import AsyncRateLimiter
 

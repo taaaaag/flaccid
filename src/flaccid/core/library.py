@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 
 import mutagen
-from mutagen.id3 import ID3, TSRC
+from mutagen.id3 import ID3
 from mutagen.mp4 import MP4
 from rich.console import Console
 

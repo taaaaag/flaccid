@@ -11,7 +11,6 @@ import base64
 import hashlib
 import json
 import os
-import random
 import re
 import time
 import webbrowser
@@ -257,9 +256,11 @@ def auto_qobuz(
         token_status = "keyring"
         try:
             store_credentials("qobuz", "user_auth_token", token)
-        except Exception as _:
+        except Exception:
             fallback_ok = _persist_secret("qobuz_user_auth_token", token)
-            token_status = f".secrets.toml ({USER_SECRETS_FILE})" if fallback_ok else "FAILED"
+            token_status = (
+                f".secrets.toml ({USER_SECRETS_FILE})" if fallback_ok else "FAILED"
+            )
             console.print("[yellow]⚠️ Could not store token in keyring.[/yellow]")
             console.print(_diagnostics_hint())
 
@@ -464,7 +465,7 @@ def auto_tidal(
         if Confirm.ask("Open link in browser?", default=True):
             webbrowser.open(verification_uri)
         start_time = time.time()
-        with console.status("Waiting for authorization...", spinner="dots") as status:
+        with console.status("Waiting for authorization...", spinner="dots"):
             while time.time() - start_time < expires_in:
                 time.sleep(interval)
                 token_resp = _post_with_retries(

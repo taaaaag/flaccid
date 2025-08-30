@@ -11,7 +11,7 @@ Features:
 import asyncio
 import hashlib
 import logging
-import os as _os
+import os as _os  # noqa: F401  # reserved for dynamic imports in this module
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -715,7 +715,7 @@ class QobuzPlugin(BasePlugin):
                         console.print(
                             f"[yellow]Warning:[/yellow] Unexpected codec '{codec}' for .flac output."
                         )
-            except Exception as _e:
+            except Exception:
                 console.print("[yellow]Warning:[/yellow] ffprobe verification failed.")
         console.print(f"[green]\u2705 Downloaded '{metadata['title']}'[/green]")
         logger.info(

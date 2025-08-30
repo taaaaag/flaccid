@@ -7,12 +7,15 @@ perform simple local fixes.
 
 import asyncio
 import re
+import csv
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import requests
 import typer
 from rich.console import Console
+import mutagen  # noqa: F401
+from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
 
 from ..core.metadata import apply_metadata
 from ..plugins.qobuz import QobuzPlugin
@@ -31,7 +34,6 @@ def _iter_audio_files(folder: Path) -> list[Path]:
 
 def _read_basic_tags(p: Path) -> Tuple[Optional[int], Optional[int]]:
     try:
-        import mutagen
 
         audio = mutagen.File(p, easy=True)
         if not audio:
@@ -75,10 +77,7 @@ def tag_audit(
     if not files:
         console.print("[yellow]No audio files found.[/yellow]")
         raise typer.Exit(0)
-    import csv
-
-    import mutagen
-    from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
+    # imports moved to module level
 
     def _get_easy(audio, key):
         try:

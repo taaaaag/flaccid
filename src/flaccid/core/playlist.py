@@ -5,7 +5,6 @@ Core logic for parsing, matching, and exporting playlists.
 import csv
 import json
 import re
-import sqlite3
 import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -16,7 +15,7 @@ from rapidfuzz import fuzz
 from rich.console import Console
 from rich.progress import track
 
-from .config import get_settings
+# from .config import get_settings  # unused
 from .database import get_db_connection
 
 console = Console()
