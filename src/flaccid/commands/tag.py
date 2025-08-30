@@ -306,7 +306,6 @@ def tag_fix_artist(
         console.print("[yellow]No audio files found.[/yellow]")
         raise typer.Exit(0)
     changed = 0
-    import mutagen
     from mutagen.flac import FLAC
     from mutagen.id3 import ID3, TPE1, TPE2, TXXX
     from mutagen.mp4 import MP4

@@ -147,7 +147,7 @@ def diag_tools(
         report["http"] = {"ok": False, "status": None}
     if json_out:
         typer.echo(json.dumps(report))
-    
+
 
 @app.command("all-status")
 def diag_all_status(

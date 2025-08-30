@@ -21,10 +21,9 @@ from ..core.auth import get_credentials, store_credentials
 from ..core.downloader import download_file
 from ..core.metadata import apply_metadata
 from .base import BasePlugin
+from ..core.ratelimit import AsyncRateLimiter
 
 logger = logging.getLogger(__name__)
-
-from ..core.ratelimit import AsyncRateLimiter
 
 
 def _sanitize(name: str) -> str:

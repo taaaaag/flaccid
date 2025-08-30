@@ -324,7 +324,7 @@ def _load_streamrip_config() -> tuple[Optional[str], list[str]]:
     macOS: ~/Library/Application Support/streamrip/config.toml
     Linux: ~/.config/streamrip/config.toml
     """
-    import os as _os
+    import os as _os  # noqa: F401
 
     import toml as _toml
 
@@ -390,7 +390,7 @@ class QobuzPlugin(BasePlugin):
         )
         secrets_env = []
         try:
-            import os as _os
+            import os as _os  # noqa: F401
 
             env_val = _os.getenv("FLA_QOBUZ_SECRETS")
             if env_val:
