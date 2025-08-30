@@ -435,6 +435,102 @@ class TidalPlugin(BasePlugin):
         )
         raise Exception("No playback URL found for track")
 
+    async def fetch_artist_top_tracks(
+        self, artist_id: str, limit: int = 50
+    ) -> list[str]:
+        """Return a list of track IDs for an artist's top tracks."""
+        hosts = [TIDAL_API_URL, TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL]
+        params_variants = [
+            {"countryCode": self.country_code, "limit": limit},
+            {"limit": limit},
+        ]
+        for base in hosts:
+            for params in params_variants:
+                try:
+                    await self._limiter.acquire()
+                    resp = self.session.get(
+                        f"{base}/v1/artists/{artist_id}/toptracks",
+                        params=params,
+                        headers={"Accept": "application/vnd.tidal.v1+json"},
+                        timeout=10,
+                    )
+                    if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
+                        continue
+                    resp.raise_for_status()
+                    j = resp.json() or {}
+                    items = None
+                    if isinstance(j, dict):
+                        items = j.get("items") or j.get("data")
+                    if isinstance(items, list) and items:
+                        ids: list[str] = []
+                        for it in items:
+                            try:
+                                tid = it.get("id") or (it.get("resource") or {}).get(
+                                    "id"
+                                )
+                                if tid:
+                                    ids.append(str(tid))
+                            except Exception:
+                                continue
+                        if ids:
+                            return ids
+                except Exception:
+                    continue
+        return []
+
+    async def download_artist_top_tracks(
+        self,
+        artist_id: str,
+        quality: str,
+        output_dir: Path,
+        *,
+        limit: int = 50,
+        verify: bool = False,
+        concurrency: int = 4,
+    ) -> int:
+        """Download an artist's top tracks into a folder."""
+        if not self.access_token:
+            await self.authenticate()
+        ids = await self.fetch_artist_top_tracks(artist_id, limit)
+        if not ids:
+            console.print("[yellow]No top tracks found for this artist.[/yellow]")
+            return 0
+        # Try fetch artist name for folder
+        artist_name = f"Artist {artist_id}"
+        try:
+            await self._limiter.acquire()
+            r = self.session.get(
+                f"{TIDAL_API_URL}/v1/artists/{artist_id}",
+                params={"countryCode": self.country_code},
+                headers={"Accept": "application/vnd.tidal.v1+json"},
+                timeout=10,
+            )
+            if r.status_code < 400:
+                j = r.json() or {}
+                nm = j.get("name") or (j.get("resource") or {}).get("name")
+                if nm:
+                    artist_name = nm
+        except Exception:
+            pass
+        safe = _sanitize(artist_name)
+        dest = output_dir / f"Tidal - {safe} - Top Tracks"
+        dest.mkdir(parents=True, exist_ok=True)
+
+        import asyncio as _asyncio
+
+        sem = _asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+        async def _wrapped(tid: str):
+            async with sem:
+                await self.download_track(tid, quality, dest, verify=verify)
+
+        tasks = [_wrapped(t) for t in ids[: int(limit)]]
+        await _asyncio.gather(*tasks)
+        console.print(
+            f"[green]✅ Downloaded {len(tasks)} top tracks for {safe}[/green]"
+        )
+        return len(tasks)
+
     def _parse_track_manifest(self, stream_json: dict) -> tuple[list[str], str] | None:
         """
         Parse Tidal playback manifest to list of URLs and file extension.
@@ -940,3 +1036,100 @@ class TidalPlugin(BasePlugin):
                 "corr": self.correlation_id,
             },
         )
+
+    async def download_playlist(
+        self,
+        playlist_id: str,
+        quality: str,
+        output_dir: Path,
+        *,
+        concurrency: int = 4,
+        verify: bool = False,
+        limit: int | None = None,
+    ):
+        """Downloads all tracks from a Tidal playlist concurrently."""
+        if not self.access_token:
+            await self.authenticate()
+
+        # Fetch playlist metadata (name) and items
+        name = f"Playlist {playlist_id}"
+        items = []
+        for base in [TIDAL_API_URL, TIDAL_API_FALLBACK_URL, TIDAL_API_ALT_URL]:
+            try:
+                # Metadata
+                await self._limiter.acquire()
+                meta = self.session.get(
+                    f"{base}/v1/playlists/{playlist_id}",
+                    params={"countryCode": self.country_code},
+                    headers={"Accept": "application/vnd.tidal.v1+json"},
+                    timeout=10,
+                )
+                if meta.status_code in (200, 404):
+                    try:
+                        mj = meta.json() or {}
+                        nm = (
+                            mj.get("title")
+                            or mj.get("name")
+                            or mj.get("resource", {}).get("title")
+                        )
+                        if nm:
+                            name = str(nm)
+                    except Exception:
+                        pass
+                # Items
+                await self._limiter.acquire()
+                resp = self.session.get(
+                    f"{base}/v1/playlists/{playlist_id}/items",
+                    params={"countryCode": self.country_code, "limit": 500},
+                    headers={"Accept": "application/vnd.tidal.v1+json"},
+                    timeout=15,
+                )
+                if resp.status_code == 404:
+                    # Fallback path shape
+                    resp = self.session.get(
+                        f"{base}/v1/playlists/{playlist_id}/tracks",
+                        params={"countryCode": self.country_code, "limit": 500},
+                        headers={"Accept": "application/vnd.tidal.v1+json"},
+                        timeout=15,
+                    )
+                if resp.status_code >= 400:
+                    continue
+                j = resp.json() or {}
+                if isinstance(j, dict):
+                    items = j.get("items") or j.get("data") or []
+                elif isinstance(j, list):
+                    items = j
+                if items:
+                    break
+            except Exception:
+                continue
+        if not items:
+            raise Exception("No tracks found in playlist.")
+
+        def _tid_from_item(it: dict) -> str | None:
+            if not isinstance(it, dict):
+                return None
+            # common shapes: {item:{id:..}} or direct {id:..}
+            return str((it.get("item") or {}).get("id") or it.get("id")) if it else None
+
+        # Prepare output directory
+        safe_name = _sanitize(name or f"Playlist {playlist_id}")
+        pl_dir = output_dir / f"Tidal - {safe_name}"
+        pl_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"Downloading playlist to [blue]{pl_dir}[/blue]")
+
+        # Download concurrently with simple throttle
+        import asyncio as _asyncio
+
+        sem = _asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+        async def _wrapped(tid: str):
+            async with sem:
+                await self.download_track(tid, quality, pl_dir, verify)
+
+        ids = [_tid_from_item(x) for x in items]
+        if isinstance(limit, int) and limit > 0:
+            ids = [t for t in ids if t][:limit]
+        tasks = [_wrapped(t) for t in ids if t]
+        await _asyncio.gather(*tasks)
+        console.print("[green]✅ Playlist download complete![/green]")

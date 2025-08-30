@@ -75,6 +75,19 @@ By default, MP3-only results are skipped. Use `--allow-mp3` to permit MP3 downlo
 
 ---
 
+## Playlists and Artist Top Tracks
+
+FLACCID supports playlist and artist top-tracks downloads for Qobuz.
+
+- Playlists: `fla get https://www.qobuz.com/playlist/<id>` or `fla get -q <id> --playlist`
+- Artist top tracks: `fla get https://www.qobuz.com/artist/<id>` or `fla get -q <id> --artist --limit 100`
+
+Notes:
+- Artist mode downloads the “Top Tracks” as returned by Qobuz. Use `--limit` to cap the number of tracks (default 50).
+- URL auto-detection works with common localized routes (e.g., `.../us-en/artist/...`).
+
+---
+
 ## Troubleshooting
 
 - “Qobuz credentials not found”: Run `fla config auto-qobuz`, verify App ID and your email/password.

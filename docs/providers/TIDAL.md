@@ -45,6 +45,19 @@ Note: Using device auth is recommended; environment tokens must be kept secure a
 
 ---
 
+## Playlists and Artist Top Tracks
+
+FLACCID supports playlist and artist top-tracks downloads for Tidal.
+
+- Playlists: `fla get https://tidal.com/playlist/<uuid>` or `fla get -t <uuid> --playlist`
+- Artist top tracks: `fla get https://tidal.com/artist/<id>` or `fla get -t <id> --artist --limit 75`
+
+Notes:
+- Artist mode downloads the Top Tracks as returned by Tidal’s API. Use `--limit` to cap the number of tracks (default 50).
+- URL auto-detection works for both `/browse/` and non-browse URL patterns.
+
+---
+
 ## Troubleshooting
 
 - 401 Unauthorized:
@@ -53,4 +66,3 @@ Note: Using device auth is recommended; environment tokens must be kept secure a
   - Run `python -m keyring diagnose`. In CI/headless, set env variables as a fallback.
 - Download errors:
   - Ensure the account has a valid subscription and the requested content is available in your region.
-

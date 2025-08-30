@@ -2,40 +2,43 @@
 
 ## Introduction
 
-FLACCID is a modular command-line toolkit for managing FLAC audio libraries and integrating with music services. It provides:
+FLACCID is a modular command-line toolkit for downloading, tagging, and managing FLAC audio libraries with integrations to popular music services. It provides:
 
-- Flexible CLI: a single `fla` command with subcommands for download, tagging, library management, and settings (Typer-based).
-- Modular plugins: Qobuz (working), Apple (metadata), Tidal (experimental stub), and lyrics provider.
-- Rich metadata tagging: Mutagen-based FLAC tagging with album art and optional lyrics.
-- Efficient downloads: aiohttp-based async downloads with Rich progress.
-- Robust configuration: Dynaconf + Pydantic; secrets via Keyring or `.secrets.toml`.
-- Library indexing: SQLite (SQLAlchemy) library with scan, index, and optional Watchdog.
-- Testing: Pytest-friendly architecture and examples.
+- Flexible CLI: a single `fla` command with grouped subcommands (Typer-based).
+- Modular plugins: Qobuz and Tidal (implemented), Apple metadata helpers, lyrics placeholder.
+- Rich metadata tagging: Mutagen-based (FLAC/MP3/M4A) with cover art and optional lyrics.
+- Efficient downloads: aiohttp-based async downloads with Rich progress UI.
+- Robust configuration: Dynaconf + Pydantic; secrets via Keyring or `.secrets.toml` fallback.
+- Library indexing: SQLite (sqlite3 + optional FTS5) with scan, index, search, and optional watchdog.
+- Diagnostics and search: provider health checks and lightweight provider search.
 
-Security note: Do not commit secrets (API keys, tokens, passwords) to the repository. Store credentials in the OS keychain (via `keyring`) or a local, gitignored `.secrets.toml`.
+Security note: Never commit secrets (API keys, tokens, passwords). Use the system keychain via `keyring` or a local, gitignored `.secrets.toml`.
 
 ---
 
 ## CLI Architecture Overview
 
-The CLI is accessed via `fla` and organized into grouped subcommands:
+The CLI (`fla`) is organized into grouped subcommands:
 
-- `fla get ...`: download music from providers (e.g., Qobuz)
-- `fla tag ...`: tag local FLAC files from online metadata (Qobuz, Apple)
-- `fla lib ...`: scan and index a local library (with optional watch)
-- `fla config ...`: configure credentials, paths, and view settings
-- `fla playlist ...`: playlist matching tools (if enabled)
+- `fla get ...`: download tracks/albums/playlists from providers (Qobuz, Tidal)
+- `fla tag ...`: tag local files (Qobuz album, Apple album, audits, cascade)
+- `fla lib ...`: scan/index/search your library, ensure identifiers, enrich via MB
+- `fla config ...`: authentication, paths, show/validate/clear settings (`fla set` is an alias)
+- `fla search ...`: provider search helpers (Qobuz/Tidal/Apple)
+- `fla playlist ...`: match playlists against your local library and export
+- `fla diag ...`: provider/tool diagnostics (Qobuz/Tidal status, tools)
 
 Examples:
 
-- Download a Qobuz album: `fla get qobuz --album-id 123456 --quality lossless --out ~/Music/Downloads`
-- Tag from Qobuz metadata: `fla tag qobuz --album-id 123456 "/path/to/AlbumFolder"`
-- Tag from Apple search: `fla tag apple "Artist - Album" "/path/to/AlbumFolder"`
-- Scan library: `fla lib scan` (add `--watch` to continuously monitor)
-- Re-index library: `fla lib index --verify`
-- Authenticate Qobuz: `fla config auto-qobuz`
-- Set library path: `fla config path --library ~/Music`
-- Show current config (JSON): `fla config show --json`
+- Download Qobuz album: `fla get qobuz --album-id 123456 --quality max --out ~/Music/Downloads`
+- Download from URL: `fla get https://www.qobuz.com/album/...` or `https://tidal.com/album/...`
+- Tag from Qobuz: `fla tag qobuz --album-id 123456 "/path/to/AlbumFolder"`
+- Tag from Apple: `fla tag apple --album-id 987654321 "/path/to/AlbumFolder"` (find IDs with `fla search apple`)
+- Scan library: `fla lib scan --watch`
+- Full index (verify): `fla lib index --verify`
+- Authenticate Qobuz: `fla config auto-qobuz` (or `fla set auto-qobuz`)
+- Authenticate Tidal: `fla config auto-tidal`
+- Show config (JSON): `fla config show --json`
 
 Typer nested subcommands: https://typer.tiangolo.com/tutorial/subcommands/nested-subcommands/
 
@@ -48,10 +51,12 @@ flaccid/
 ├── __init__.py
 ├── cli.py               # Typer entry point
 ├── commands/
-│   ├── get.py           # 'fla get' (Qobuz, Tidal experimental)
-│   ├── tag.py           # 'fla tag' (Qobuz, Apple)
-│   ├── lib.py           # 'fla lib' (scan/index)
-│   └── settings.py      # 'fla set' (auth/path)
+│   ├── get.py           # 'fla get' (Qobuz, Tidal)
+│   ├── tag.py           # 'fla tag' (Qobuz, Apple, audits, cascade)
+│   ├── lib.py           # 'fla lib' (scan/index/stats/ids/enrich)
+│   ├── search.py        # 'fla search' (qobuz/tidal/apple)
+│   ├── playlist.py      # 'fla playlist' (match/export)
+│   └── diag.py          # 'fla diag' (qobuz-status/tidal-status/tools)
 ├── plugins/
 │   ├── base.py          # Plugin interfaces and metadata models
 │   ├── qobuz.py         # Qobuz implementation (auth/metadata/download)
@@ -63,7 +68,11 @@ flaccid/
 │   ├── metadata.py      # Tagging cascade (Mutagen)
 │   ├── downloader.py    # Download helpers (aiohttp + Rich)
 │   ├── library.py       # Scan/watch/index
-│   └── database.py      # SQLAlchemy models and helpers
+│   ├── database.py      # SQLite schema and helpers (sqlite3 + FTS)
+│   ├── library.py       # Filesystem scanning, hashing, incremental refresh
+│   ├── logging_util.py  # Logging setup
+│   ├── ratelimit.py     # Async rate limiter utility
+│   └── api_config.py    # Provider API host config
 ├── tests/
 ├── pyproject.toml
 └── README.md
@@ -77,14 +86,17 @@ flaccid/
 # flaccid/cli.py
 
 import typer
-from flaccid.commands import config, get, lib, playlist, tag
+from flaccid.commands import config, diag, get, lib, playlist, search, tag
 
 app = typer.Typer(help="FLACCID CLI - A modular FLAC toolkit")
 
 app.add_typer(config.app, name="config", help="Manage authentication, paths, and settings")
+app.add_typer(config.app, name="set", help="(Alias) Manage authentication, paths, and settings")
 app.add_typer(get.app, name="get", help="Download from providers")
 app.add_typer(lib.app, name="lib", help="Manage local music library")
 app.add_typer(playlist.app, name="playlist", help="Playlist matching and export")
+app.add_typer(search.app, name="search", help="Search providers for albums/tracks")
+app.add_typer(diag.app, name="diag", help="Diagnostics for providers and tools")
 app.add_typer(tag.app, name="tag", help="Tag local files from metadata")
 
 if __name__ == "__main__":
@@ -93,7 +105,7 @@ if __name__ == "__main__":
 
 ---
 
-## Download Commands: Qobuz and Tidal (experimental)
+## Download Commands: Qobuz and Tidal
 
 ```python
 # flaccid/commands/get.py
@@ -135,16 +147,15 @@ def get_qobuz(
     typer.secho("Qobuz download complete!", fg=typer.colors.GREEN)
 
 
-@app.command("tidal")
-def get_tidal(
-    album_id: str = typer.Option(None, "--album-id", help="Tidal album ID"),
-    track_id: str = typer.Option(None, "--track-id", help="Tidal track ID"),
-    quality: str = typer.Option("lossless", "--quality", "-q", help="lossless|hi-res"),
-    output: Path = typer.Option(None, "--out", "-o", help="Output directory"),
-):
-    """Download from Tidal (experimental, not implemented)."""
-    typer.secho("Tidal support is experimental and not yet implemented.", fg=typer.colors.YELLOW)
-    raise typer.Exit(code=2)
+Notes:
+- Qobuz: quality fallback and secret signing are handled automatically; supports album/track/playlist; URLs are auto-detected.
+- Tidal: supports album/track/playlist; tokens refresh automatically; manifest parsing for FLAC/ALAC.
+- Artist mode: Both providers support an artist “top tracks” download mode via URL or flags.
+
+Examples:
+- Tidal playlist: `fla get https://tidal.com/playlist/<uuid>` or `fla get -t <uuid> --playlist`
+- Tidal artist (top tracks): `fla get https://tidal.com/artist/<id>` or `fla get -t <id> --artist`
+- Qobuz artist (top tracks): `fla get https://www.qobuz.com/artist/<id>` or `fla get -q <id> --artist`
 ```
 
 Notes:
@@ -215,7 +226,7 @@ class MusicServicePlugin(ABC):
 
 ---
 
-## Qobuz Plugin (async auth, timeouts, filename sanitization)
+## Qobuz Plugin (auth, request signing, quality fallback)
 
 ```python
 # flaccid/plugins/qobuz.py
@@ -237,6 +248,83 @@ def sanitize_filename(name: str, replacement: str = "-") -> str:
     return "".join((c if c not in invalid else replacement) for c in name).strip()
 
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10, sock_read=60)
+
+Key points:
+- Auth: app_id + user_auth_token loaded from keyring/env/.secrets.toml (with optional Streamrip config import).
+- Signing: `track/getFileUrl` signed with app secret(s), probing to discover a working secret and highest supported format.
+- Quality fallback: tries `29/27/19/7/6/5` based on requested quality and account capabilities.
+- Paths: filenames/directories sanitized and templated from normalized metadata.
+
+See `src/flaccid/plugins/qobuz.py` for implementation details.
+
+---
+
+## Tidal Plugin (device auth, manifest parsing)
+
+Highlights:
+- OAuth 2.0 device authorization via `fla config auto-tidal` with secure polling flow.
+- Host fallbacks for OpenAPI vs legacy endpoints; robust parameter casing handling.
+- Playback manifest parsing for FLAC/ALAC streams (BTS/MPD), with extension detection.
+
+See `src/flaccid/plugins/tidal.py` for implementation details.
+
+---
+
+## Tagging Commands
+
+Implemented subcommands in `fla tag`:
+
+- `qobuz`: Tag a local album folder by Qobuz album ID.
+- `apple`: Tag a local album folder by Apple iTunes collection ID.
+- `audit`: Audit and optionally fix missing basic tags in a folder.
+- `fix-artist`: Normalize artist tags using albumartist, optionally stripping “feat.”.
+- `cascade`: Multi-source fill (tidal, apple, qobuz, mb) by ISRC/lookup, respecting `--fill-missing`.
+
+Tag writing supports FLAC, MP3 (ID3), and M4A atoms; cover art is embedded when available.
+
+---
+
+## Library and Database
+
+- SQLite schema via `sqlite3` with indices and optional FTS5 mirror for fast search.
+- `tracks` table stores basic tags, provider IDs, duration, path, hashes, timestamps.
+- `track_ids` (many-to-one) stores external identifiers (e.g., `mb:recording`, provider IDs, file hash).
+- `album_ids` stores album-level identifiers (UPC, MB release IDs, etc.).
+- View `track_best_identifier` picks the best identifier per track with preference order.
+
+Key commands:
+- `fla lib scan --watch`: incremental refresh (mtime or hash verification).
+- `fla lib index --verify`: full index with hashing.
+- `fla lib search`: FTS-backed or LIKE fallback search.
+- `fla lib ensure-ids`: ensure each track has at least one identifier (ISRC/providers/hash).
+- `fla lib enrich-mb` and `enrich-mb-fuzzy`: add MusicBrainz IDs via ISRC or fuzzy matching.
+
+---
+
+## Search, Playlist, Diagnostics
+
+- `fla search`: provider lookups (Qobuz/Tidal/Apple) for IDs/ISRC/UPC.
+- `fla playlist match|export`: parse JSON/M3U/CSV/TXT playlists, match against library using normalized/fuzzy scoring, and export M3U/JSON.
+- `fla diag qobuz-status|tidal-status|tools|all-status`: quick provider health and tool presence checks.
+
+---
+
+## Configuration and Credentials
+
+- `fla config auto-qobuz`: login via email/password MD5 or existing token; optional bundle scraping via `fetch-qobuz-secrets` to populate app_id/secrets.
+- `fla config auto-tidal`: device authorization flow; persists tokens and timing info.
+- `fla config path|show|validate|clear`: manage paths, view status, basic validation, clear credentials.
+- Alias: `fla set` is an alias for `fla config`.
+
+Persistence order for secrets: keyring → env vars → `.secrets.toml` fallback.
+
+---
+
+## Notes and Roadmap
+
+- Apple plugin currently focuses on metadata via iTunes endpoints; downloads are out of scope.
+- Lyrics plugin is a placeholder; integration points exist in tagging.
+- Future: expand artist/playlist download modes for both providers and add more diagnostics.
 
 class QobuzPlugin(MusicServicePlugin):
     def __init__(self) -> None:

@@ -129,6 +129,14 @@ fla get -q 12888812 --track
 fla get -t 86902482 --track
 fla get -t 8690248 --album
 
+# Playlists and Artists
+fla get https://tidal.com/playlist/<uuid>
+fla get -t <uuid> --playlist
+fla get https://tidal.com/artist/<id>           # top tracks
+fla get -t <id> --artist --limit 75            # limit top tracks
+fla get https://www.qobuz.com/artist/<id>
+fla get -q <id> --artist --limit 100
+
 # Allow MP3 fallbacks (otherwise MP3-only streams are skipped)
 fla get -q 12888812 --track --allow-mp3
 

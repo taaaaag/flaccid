@@ -4,6 +4,13 @@ FLACCID is a command-line toolkit for downloading, tagging, and managing a local
 
 It currently supports downloading from **Tidal** and **Qobuz** and is designed to be extensible with a plugin-based architecture.
 
+Highlights:
+- Qobuz and Tidal downloads (album/track/playlist; URL autodetect)
+- Artist mode: download provider "Top Tracks" for an artist (`--artist`, with `--limit`)
+- Rich tagging (FLAC/MP3/M4A) incl. cover art; Qobuz/Apple cascade
+- SQLite library with scan/index/search and identifier management
+- Typer-based CLI with `config`, `get`, `tag`, `lib`, `search`, `playlist`, `diag`
+
 ## Repository layout (which code is active?)
 
 - Active package: src/flaccid
@@ -46,6 +53,10 @@ Roadmap: see `docs/ROADMAP.md` for the current backlog and priorities.
   - Tidal track: `fla get https://tidal.com/browse/track/86902482`
   - Tidal album: `fla get https://tidal.com/album/12345`
   - Qobuz album: `fla get https://www.qobuz.com/us-en/album/some-album/0886447783652`
+
+  - Tidal playlist: `fla get https://tidal.com/playlist/<uuid>` or `fla get -t <uuid> --playlist`
+  - Tidal artist (top tracks): `fla get https://tidal.com/artist/<id>` or `fla get -t <id> --artist --limit 75`
+  - Qobuz artist (top tracks): `fla get https://www.qobuz.com/artist/<id>` or `fla get -q <id> --artist --limit 100`
 
 - Download (service + ID flags)
   - Tidal track: `fla get -t 86902482 --track`

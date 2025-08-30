@@ -331,6 +331,32 @@ class _QobuzApiClient:
             response.raise_for_status()
             return await response.json()
 
+    async def search_album(
+        self, query: str, *, limit: int = 5, offset: int = 0
+    ) -> dict:
+        if not self.session:
+            raise RuntimeError("API client must be used within an active session.")
+        if self.limiter:
+            await self.limiter.acquire()
+        full_url = f"{QOBUZ_API_URL}/album/search"
+        params = {"query": query, "limit": limit, "offset": offset}
+        async with self.session.get(full_url, params=params) as response:
+            response.raise_for_status()
+            return await response.json()
+
+    async def get_artist_top_tracks(
+        self, artist_id: str, *, limit: int = 50, offset: int = 0
+    ) -> dict:
+        if not self.session:
+            raise RuntimeError("API client must be used within an active session.")
+        if self.limiter:
+            await self.limiter.acquire()
+        full_url = f"{QOBUZ_API_URL}/artist/getTopTracks"
+        params = {"artist_id": artist_id, "limit": limit, "offset": offset}
+        async with self.session.get(full_url, params=params) as response:
+            response.raise_for_status()
+            return await response.json()
+
 
 def _load_streamrip_config() -> tuple[Optional[str], list[str]]:
     """Load app_id and secrets from Streamrip config if present.
@@ -870,6 +896,7 @@ class QobuzPlugin(BasePlugin):
         allow_mp3: bool = False,
         concurrency: int = 4,
         verify: bool = False,
+        limit: int | None = None,
     ) -> int:
         if not self.api_client:
             raise RuntimeError("Plugin not authenticated or session not started.")
@@ -937,6 +964,8 @@ class QobuzPlugin(BasePlugin):
 
         task_ids = [_extract_track_id(t) for t in items]
         task_ids = [tid for tid in task_ids if tid]
+        if isinstance(limit, int) and limit > 0:
+            task_ids = task_ids[:limit]
         tasks = [_wrapped(tid) for tid in task_ids]
         if tasks:
             await asyncio.gather(*tasks)
@@ -951,6 +980,66 @@ class QobuzPlugin(BasePlugin):
             },
         )
         return len(task_ids)
+
+    async def download_artist_top_tracks(
+        self,
+        artist_id: str,
+        quality: str,
+        output_dir: Path,
+        *,
+        limit: int = 50,
+        allow_mp3: bool = False,
+        concurrency: int = 4,
+        verify: bool = False,
+    ) -> int:
+        """Download an artist's top tracks into a folder.
+
+        Uses the Qobuz top-tracks endpoint and downloads up to `limit` items.
+        """
+        if not self.api_client:
+            raise RuntimeError("Plugin not authenticated or session not started.")
+        data = await self.api_client.get_artist_top_tracks(
+            artist_id, limit=limit, offset=0
+        )
+        items = (
+            (data.get("tracks") or {}).get("items") if isinstance(data, dict) else []
+        )
+        artist_name = None
+        try:
+            artist_obj = data.get("artist") if isinstance(data, dict) else None
+            if isinstance(artist_obj, dict):
+                artist_name = artist_obj.get("name") or (
+                    artist_obj.get("artist") or {}
+                ).get("name")
+        except Exception:
+            pass
+        if not items:
+            console.print("[yellow]No top tracks returned for artist.[/yellow]")
+            return 0
+        safe_artist = _sanitize(artist_name or f"Artist {artist_id}")
+        dest = output_dir / f"Qobuz - {safe_artist} - Top Tracks"
+        dest.mkdir(parents=True, exist_ok=True)
+        sem = asyncio.Semaphore(max(1, int(concurrency or 1)))
+
+        async def _wrapped(tid: str):
+            async with sem:
+                return await self.download_track(tid, quality, dest, allow_mp3, verify)
+
+        task_ids = []
+        for it in items[: int(limit)]:
+            try:
+                tid = str((it.get("track") or {}).get("id") or it.get("id"))
+            except Exception:
+                tid = None
+            if tid:
+                task_ids.append(tid)
+        tasks = [_wrapped(t) for t in task_ids]
+        results = await asyncio.gather(*tasks)
+        succeeded = sum(1 for r in results if r)
+        console.print(
+            f"[green]✅ Downloaded {succeeded}/{len(task_ids)} top tracks for {safe_artist}[/green]"
+        )
+        return succeeded
 
     async def _find_stream(
         self, track_id: str, quality: str, allow_mp3: bool = False

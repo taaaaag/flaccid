@@ -97,10 +97,8 @@ def search_qobuz(
                 else:
                     _print_table(rows, ["id", "title", "artist", "album", "isrc"])
             else:
-                # Album search via API (private helper)
-                data = await plugin._QobuzApiClient__class__ if False else None  # type: ignore
-                # Use internal request
-                data = await plugin.api_client._request("/album/search", {"query": query, "limit": limit})  # type: ignore
+                # Album search via API helper
+                data = await plugin.api_client.search_album(query, limit=limit)
                 items = (
                     (data.get("albums") or {}).get("items")
                     if isinstance(data, dict)
