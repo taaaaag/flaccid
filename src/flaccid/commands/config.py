@@ -15,10 +15,10 @@ import re
 import time
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-import requests
-import toml
+import requests  # type: ignore
+import toml  # type: ignore
 import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
@@ -77,7 +77,7 @@ def _persist_secret(k: str, v: str) -> bool:
     """Persist a key/value secret to the user's .secrets.toml. Returns True on success."""
     try:
         USER_SECRETS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        data = {}
+        data: dict[str, Any] = {}
         if USER_SECRETS_FILE.exists():
             try:
                 data = toml.loads(USER_SECRETS_FILE.read_text(encoding="utf-8")) or {}
@@ -698,7 +698,7 @@ def config_show(
     t_refresh = get_credentials("tidal", "refresh_token")
 
     # Base data from loaded settings
-    data = {
+    data: dict[str, Any] = {
         "paths": {
             "library": str(settings.library_path),
             "download": str(settings.download_path),
@@ -720,7 +720,7 @@ def config_show(
     local_file = Path("settings.toml")
     if local_file.exists():
         try:
-            local_cfg = toml.loads(local_file.read_text(encoding="utf-8")) or {}
+            local_cfg: dict[str, Any] = toml.loads(local_file.read_text(encoding="utf-8")) or {}
             if "library_path" in local_cfg:
                 data["paths"]["library"] = str(
                     Path(local_cfg["library_path"]).expanduser().resolve()
