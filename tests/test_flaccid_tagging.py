@@ -25,6 +25,9 @@ def test_apply_metadata_mp3(tmp_path: Path):
 
 
 def test_playlist_parser_minimal(tmp_path: Path):
+    """
+    Test that PlaylistParser correctly parses a minimal playlist JSON file and returns the expected tracks.
+    """
     from flaccid.core.playlist import PlaylistParser
 
     data = [

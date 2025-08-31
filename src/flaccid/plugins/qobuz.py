@@ -127,10 +127,12 @@ class _QobuzApiClient:
             "user_auth_token": self.auth_token,
             **(params or {}),
         }
+        # Convert all param values to str for correct typing
+        request_params = {k: str(v) for k, v in request_params.items()}
         if signed:
             ts, sig = _sign_request(
-                self.app_secret, endpoint.strip("/"), **request_params
-            )
+                self.app_secret or "", endpoint.strip("/"), **request_params
+            )  # type: ignore
             request_params["request_ts"] = ts
             request_params["request_sig"] = sig
         import aiohttp as _aio

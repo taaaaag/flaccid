@@ -720,7 +720,9 @@ def config_show(
     local_file = Path("settings.toml")
     if local_file.exists():
         try:
-            local_cfg: dict[str, Any] = toml.loads(local_file.read_text(encoding="utf-8")) or {}
+            local_cfg: dict[str, Any] = (
+                toml.loads(local_file.read_text(encoding="utf-8")) or {}
+            )
             if "library_path" in local_cfg:
                 data["paths"]["library"] = str(
                     Path(local_cfg["library_path"]).expanduser().resolve()
