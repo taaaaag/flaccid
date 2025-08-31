@@ -133,7 +133,17 @@ class _QobuzApiClient:
             )
             request_params["request_ts"] = ts
             request_params["request_sig"] = sig
-        async with self.session.get(full_url, params=request_params) as response:
+        import aiohttp as _aio
+        import os as _os
+
+        try:
+            _http_to = float(_os.getenv("FLA_QOBUZ_HTTP_TIMEOUT", "8") or "8")
+        except Exception:
+            _http_to = 8.0
+        _timeout = _aio.ClientTimeout(total=_http_to)
+        async with self.session.get(
+            full_url, params=request_params, timeout=_timeout
+        ) as response:
             response.raise_for_status()
             return await response.json()
 
@@ -314,7 +324,17 @@ class _QobuzApiClient:
             "offset": offset,
             "extra": "tracks",
         }
-        async with self.session.get(full_url, params=params) as response:
+        import aiohttp as _aio
+        import os as _os
+
+        try:
+            _http_to = float(_os.getenv("FLA_QOBUZ_HTTP_TIMEOUT", "8") or "8")
+        except Exception:
+            _http_to = 8.0
+        _timeout = _aio.ClientTimeout(total=_http_to)
+        async with self.session.get(
+            full_url, params=params, timeout=_timeout
+        ) as response:
             response.raise_for_status()
             return await response.json()
 
@@ -327,7 +347,17 @@ class _QobuzApiClient:
             await self.limiter.acquire()
         full_url = f"{QOBUZ_API_URL}/track/search"
         params = {"query": query, "limit": limit, "offset": offset}
-        async with self.session.get(full_url, params=params) as response:
+        import aiohttp as _aio
+        import os as _os
+
+        try:
+            _http_to = float(_os.getenv("FLA_QOBUZ_HTTP_TIMEOUT", "8") or "8")
+        except Exception:
+            _http_to = 8.0
+        _timeout = _aio.ClientTimeout(total=_http_to)
+        async with self.session.get(
+            full_url, params=params, timeout=_timeout
+        ) as response:
             response.raise_for_status()
             return await response.json()
 
@@ -430,8 +460,6 @@ class QobuzPlugin(BasePlugin):
         )
         secrets_env = []
         try:
-            import os as _os  # noqa: F401
-
             env_val = _os.getenv("FLA_QOBUZ_SECRETS")
             if env_val:
                 secrets_env = [s.strip() for s in env_val.split(",") if s.strip()]
@@ -663,6 +691,35 @@ class QobuzPlugin(BasePlugin):
         )
         track_data = await self.api_client.get_track(track_id)
         metadata = self._normalize_metadata(track_data)
+        # Check library DB before attempting download to avoid duplicates
+        try:
+            st = _get_settings_cfg()
+            db_path = st.db_path or (st.library_path / "flaccid.db")
+            conn = _db_conn(db_path)
+            cur = conn.cursor()
+            isrc = metadata.get("isrc")
+            if isrc:
+                row = cur.execute(
+                    "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+                ).fetchone()
+                if row is not None:
+                    console.print(
+                        "[cyan]Already in library (by ISRC); skipping download[/cyan]"
+                    )
+                    conn.close()
+                    return False
+            row2 = cur.execute(
+                "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (str(track_id),)
+            ).fetchone()
+            if row2 is not None:
+                console.print(
+                    "[cyan]Already in library (by Qobuz ID); skipping download[/cyan]"
+                )
+                conn.close()
+                return False
+            conn.close()
+        except Exception:
+            pass
         format_id, stream_url = await self._find_stream(track_id, quality, allow_mp3)
         if format_id is None or stream_url is None:
             console.print(
@@ -822,16 +879,9 @@ class QobuzPlugin(BasePlugin):
 
             def _exists(tid: str, isrc: str | None) -> bool:
                 try:
-                    if isrc:
-                        row = cur.execute(
-                            "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (isrc,)
-                        ).fetchone()
-                        if row is not None:
-                            return True
-                    row2 = cur.execute(
-                        "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (tid,)
-                    ).fetchone()
-                    return row2 is not None
+                    from ..core.database import has_track as _has
+
+                    return _has(cur.connection, isrc=isrc, qobuz_id=str(tid))
                 except Exception:
                     return False
 

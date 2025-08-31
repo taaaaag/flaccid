@@ -1,6 +1,6 @@
 # Configuration Reference (Legacy)
 
-As of v0.2.0, the FLACCID CLI (`fla`) is the primary interface. This file contains legacy/alternate configuration concepts and may not reflect all current options.
+Interactive Jupyter Notebook
 
 For the authoritative, up-to-date guide covering config precedence, credentials, and downloads, see `docs/USAGE.md`.
 
@@ -24,6 +24,7 @@ Security note: Do not commit secrets (API keys, tokens, passwords) to the reposi
 ---
 
 ## DownloadConfig
+
 - default_output_path: Path
   - Default: `~/Music/Downloads`
   - Env: `FLA_DOWNLOAD_PATH`
@@ -41,11 +42,13 @@ Security note: Do not commit secrets (API keys, tokens, passwords) to the reposi
   - Env: `FLA_ADD_TO_LIBRARY`
 
 ### Qobuz Setup
+
 Use `fla set auth qobuz` to configure credentials (stored in the OS keychain). If an App ID is required, set it via environment (`FLA_QOBUZ_APP_ID`) or a local `.secrets.toml` (gitignored).
 
 ---
 
 ## LibraryConfig
+
 - roots: `List[Path]`
   - Default: `[~/Music]`
   - Env: `FLA_LIBRARY_ROOTS` (JSON list recommended)
@@ -62,6 +65,7 @@ Use `fla set auth qobuz` to configure credentials (stored in the OS keychain). I
 ---
 
 ## MatchingConfig
+
 - threshold_auto_match: `int`
   - Default: `90`
   - Range: `0-100`
@@ -85,6 +89,7 @@ Use `fla set auth qobuz` to configure credentials (stored in the OS keychain). I
 ---
 
 ## WizardConfig
+
 - enabled: `bool`
   - Default: `true`
   - Env: `FLA_WIZARD_ENABLED`
@@ -100,6 +105,7 @@ Use `fla set auth qobuz` to configure credentials (stored in the OS keychain). I
 ## Examples
 
 ### Environment variables
+
 The CLI reads simple settings from environment variables (via Dynaconf):
 
 - `FLA_LIBRARY_PATH`: default library directory
@@ -117,11 +123,13 @@ fla --help
 ```
 
 ### Drop-in file (config.d/10-wizard.json)
+
 ```json
 { "wizard": { "enabled": false, "theme": "minimal" } }
 ```
 
 ### Env overrides
+
 ```bash
 FLA_LIBRARY_PATH=~/Music/FLACCID \
 FLA_DOWNLOAD_PATH=~/Downloads/FLACCID \
@@ -129,6 +137,7 @@ fla lib scan
 ```
 
 ### Set values via CLI
+
 ```bash
 fla set path ~/Music/FLACCID
 fla set auth qobuz

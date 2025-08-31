@@ -93,8 +93,9 @@ def get_settings() -> FlaccidSettings:
         try:
             config_dict = settings_loader.as_dict() or {}
 
-            # If a project-local settings file exists, load and overlay explicitly
-            if LOCAL_SETTINGS_FILE.exists():
+            # If a project-local settings file exists, optionally overlay explicitly
+            ignore_local = os.getenv("FLA_IGNORE_LOCAL_SETTINGS") == "1"
+            if (not ignore_local) and LOCAL_SETTINGS_FILE.exists():
                 try:
                     local_data = (
                         toml.loads(LOCAL_SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -142,7 +143,7 @@ def save_settings(new_settings: FlaccidSettings):
     if new_settings.db_path is not None:
         settings_loader.set("db_path", str(new_settings.db_path))
 
-    # Persist locally to support isolated filesystem scenarios
+    # Persist settings for both local (project) and user scope so CLI picks them up
     data = {
         "library_path": str(new_settings.library_path),
         "download_path": str(new_settings.download_path),
@@ -150,7 +151,18 @@ def save_settings(new_settings: FlaccidSettings):
     if new_settings.db_path is not None:
         data["db_path"] = str(new_settings.db_path)
 
-    LOCAL_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")
+    # Write project-local settings (used in dev/tests unless ignored)
+    try:
+        LOCAL_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
+
+    # Write user-level settings (preferred for real runs and when local overrides are ignored)
+    try:
+        USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        USER_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")
+    except Exception:
+        pass
 
     _settings_instance = new_settings
 

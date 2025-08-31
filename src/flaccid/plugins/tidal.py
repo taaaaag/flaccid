@@ -80,6 +80,13 @@ class TidalPlugin(BasePlugin):
         except (requests.RequestException, requests.HTTPError) as e:
             raise Exception(f"Tidal API check failed: {e}") from e
 
+        # Best-effort: discover countryCode from the active session to match
+        # account/region (avoids forcing users to set FLA_TIDAL_COUNTRY).
+        try:
+            await self._discover_country_code()
+        except Exception:
+            pass
+
     async def _check_auth(self):
         """Verifies access token via /v1/me; gracefully handles OpenAPI 404.
 
@@ -122,6 +129,40 @@ class TidalPlugin(BasePlugin):
                 "corr": self.correlation_id,
             },
         )
+
+    async def _discover_country_code(self):
+        """Fetch current session/user info to set an accurate country code.
+
+        Tries common hosts; tolerates failures. Updates self.country_code on success.
+        """
+        hosts = [TIDAL_API_URL, TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL]
+        for base in hosts:
+            try:
+                await self._limiter.acquire()
+                resp = self.session.get(
+                    f"{base}/v1/sessions",
+                    headers={"Accept": "application/vnd.tidal.v1+json"},
+                    timeout=8,
+                )
+                if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
+                    continue
+                resp.raise_for_status()
+                j = resp.json() or {}
+                cc = (
+                    j.get("countryCode")
+                    or (j.get("session") or {}).get("countryCode")
+                    or (j.get("resource") or {}).get("countryCode")
+                )
+                if cc and isinstance(cc, str) and len(cc) in (2, 3):
+                    # Normalize to upper case; prefer 2-letter code if given
+                    self.country_code = cc.upper()
+                    logger.debug(
+                        "tidal.session.country",
+                        extra={"provider": "tidal", "country": self.country_code},
+                    )
+                    return
+            except Exception:
+                continue
 
     async def _refresh_access_token(self):
         """Uses the stored refresh token to obtain a new access token."""
@@ -701,6 +742,38 @@ class TidalPlugin(BasePlugin):
             },
         )
         metadata = await self._get_track_metadata(track_id)
+        # Check library DB before attempting download to avoid duplicates
+        try:
+            from ..core.config import get_settings as _get_settings
+            from ..core.database import get_db_connection as _dbc
+
+            st = _get_settings()
+            db_path = st.db_path or (st.library_path / "flaccid.db")
+            conn = _dbc(db_path)
+            cur = conn.cursor()
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE tidal_id=? LIMIT 1", (str(track_id),)
+            ).fetchone()
+            if row is not None:
+                console.print(
+                    "[cyan]Already in library (by Tidal ID); skipping download[/cyan]"
+                )
+                conn.close()
+                return False
+            isrc = metadata.get("isrc")
+            if isrc:
+                row2 = cur.execute(
+                    "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+                ).fetchone()
+                if row2 is not None:
+                    console.print(
+                        "[cyan]Already in library (by ISRC); skipping download[/cyan]"
+                    )
+                    conn.close()
+                    return False
+            conn.close()
+        except Exception:
+            pass
         stream_info = await self._get_stream_info(track_id, quality)
         if not stream_info:
             raise Exception("No playable stream found")
@@ -727,7 +800,9 @@ class TidalPlugin(BasePlugin):
                         seg_files: list[Path] = []
                         with requests.Session() as s:
                             for i, u in enumerate(urls):
-                                seg_path = Path(tmpdir) / f"seg_{i:05d}.mp4"
+                                # Preserve original suffix for better muxing
+                                suffix = Path(u).suffix or ".mp4"
+                                seg_path = Path(tmpdir) / f"seg_{i:05d}{suffix}"
                                 r = s.get(u, timeout=120)
                                 r.raise_for_status()
                                 with open(seg_path, "wb") as sf:
@@ -738,11 +813,14 @@ class TidalPlugin(BasePlugin):
                             "".join(f"file '{p.name}'\n" for p in seg_files),
                             encoding="utf-8",
                         )
+                        # Output to a temp file with proper extension so ffmpeg can infer the container
+                        out_tmp = Path(tmpdir) / ("out" + ext)
                         cmd = [
                             ffmpeg_path,
                             "-hide_banner",
                             "-loglevel",
                             "error",
+                            "-y",
                             "-f",
                             "concat",
                             "-safe",
@@ -753,15 +831,25 @@ class TidalPlugin(BasePlugin):
                             "copy",
                             "-movflags",
                             "+faststart",
-                            str(tmp_out),
+                            str(out_tmp),
                         ]
                         subprocess.run(cmd, check=True, cwd=tmpdir)
+                        # Move to final destination via .part name first
+                        Path(out_tmp).replace(tmp_out)
                 except Exception as e:
                     logger.debug(
                         "tidal.ffmpeg_concat.failed",
                         extra={"error": str(e), "corr": self.correlation_id},
                     )
-                    raise
+                    # Fallback: naive concatenation of init + segments
+                    with open(tmp_out, "wb") as out:
+                        with requests.Session() as s:
+                            for u in urls:
+                                rr = s.get(u, stream=True, timeout=120)
+                                rr.raise_for_status()
+                                for chunk in rr.iter_content(8192):
+                                    if chunk:
+                                        out.write(chunk)
                 Path(tmp_out).rename(filepath)
             else:
                 # Non-M4A segmented content: best-effort append as before
@@ -976,10 +1064,9 @@ class TidalPlugin(BasePlugin):
 
             def _exists_by_tid(_tid: str) -> bool:
                 try:
-                    row = cur.execute(
-                        "SELECT 1 FROM tracks WHERE tidal_id=? LIMIT 1", (_tid,)
-                    ).fetchone()
-                    return row is not None
+                    from ..core.database import has_track as _has
+
+                    return _has(cur.connection, tidal_id=str(_tid))
                 except Exception:
                     return False
 
@@ -997,13 +1084,14 @@ class TidalPlugin(BasePlugin):
                 try:
                     md = await self._get_track_metadata(tid)
                     isrc = (md or {}).get("isrc") if isinstance(md, dict) else None
-                    if isrc:
-                        row = cur.execute(
-                            "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
-                        ).fetchone()
-                        if row is not None:
+                    try:
+                        from ..core.database import has_track as _has
+
+                        if _has(cur.connection, isrc=str(isrc) if isrc else None):
                             skipped += 1
                             continue
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 kept.append(t)

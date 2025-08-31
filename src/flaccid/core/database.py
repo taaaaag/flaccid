@@ -78,6 +78,49 @@ def get_db_connection(db_path: Path) -> sqlite3.Connection:
         raise
 
 
+def has_track(
+    conn: sqlite3.Connection,
+    *,
+    isrc: Optional[str] = None,
+    qobuz_id: Optional[str] = None,
+    tidal_id: Optional[str] = None,
+    apple_id: Optional[str] = None,
+) -> bool:
+    """Return True if a track exists matching any provided identifier.
+
+    Checks are short-circuited in order: ISRC, Qobuz, Tidal, Apple.
+    """
+    try:
+        cur = conn.cursor()
+        if isrc:
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
+            ).fetchone()
+            if row is not None:
+                return True
+        if qobuz_id:
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (str(qobuz_id),)
+            ).fetchone()
+            if row is not None:
+                return True
+        if tidal_id:
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE tidal_id=? LIMIT 1", (str(tidal_id),)
+            ).fetchone()
+            if row is not None:
+                return True
+        if apple_id:
+            row = cur.execute(
+                "SELECT 1 FROM tracks WHERE apple_id=? LIMIT 1", (str(apple_id),)
+            ).fetchone()
+            if row is not None:
+                return True
+    except sqlite3.Error:
+        return False
+    return False
+
+
 def init_db(conn: sqlite3.Connection):
     """Creates the database tables (`albums`, `tracks`) if they don't exist."""
     try:

@@ -44,7 +44,8 @@ def playlist_match(
         output = input_file.with_suffix(".match.json")
 
     settings = get_settings()
-    db_path = settings.library_path / "flaccid.db"
+    # Respect explicit DB override if configured
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
 
     console.print(f"📝 Loading tracks from [bold]{input_file.name}[/bold]...")
     parser = PlaylistParser()

@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 
 from ..core.config import get_settings
-from ..core.database import get_db_connection
+from ..core.database import get_db_connection, init_db, has_track
 from ..plugins.qobuz import QobuzPlugin
 from ..plugins.tidal import TidalPlugin
 
@@ -42,8 +42,16 @@ async def _download_qobuz(
     artist_limit: int = 50,
 ):
     """Internal function to download from Qobuz."""
-    # Quality fallback for Qobuz: hires -> lossless -> mp3
-    quality_fallback = ["hires", "lossless", "mp3"] if quality == "max" else [quality]
+    # Quality fallback for Qobuz
+    # - max: hires -> lossless -> mp3 (if allowed)
+    # - hires: hires -> lossless (common tool behavior)
+    # - lossless: lossless (no mp3 unless user opted in)
+    if quality == "max":
+        quality_fallback = ["hires", "lossless", "mp3"]
+    elif str(quality).lower() in {"hires", "hi-res", "hi_res", "3"}:
+        quality_fallback = ["hires", "lossless"]
+    else:
+        quality_fallback = [quality]
 
     try:
         async with QobuzPlugin(
@@ -55,11 +63,13 @@ async def _download_qobuz(
                     st = get_settings()
                     db_path = st.db_path or (st.library_path / "flaccid.db")
                     conn = get_db_connection(db_path)
-                    row = conn.execute(
-                        "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1", (tid,)
-                    ).fetchone()
-                    conn.close()
-                    return row is not None
+                    try:
+                        return has_track(conn, qobuz_id=str(tid))
+                    finally:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
                 except Exception:
                     return False
 
@@ -133,27 +143,12 @@ async def _download_qobuz(
                                 db_path = st.db_path or (st.library_path / "flaccid.db")
                                 conn = get_db_connection(db_path)
                                 try:
-                                    if isrc:
-                                        row = conn.execute(
-                                            "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1",
-                                            (str(isrc),),
-                                        ).fetchone()
-                                        if row is not None:
-                                            console.print(
-                                                "[cyan]Already in library (by ISRC); skipping download[/cyan]"
-                                            )
-                                            conn.close()
-                                            return
-                                    # Fallback: provider-specific id
-                                    row2 = conn.execute(
-                                        "SELECT 1 FROM tracks WHERE qobuz_id=? LIMIT 1",
-                                        (str(track_id),),
-                                    ).fetchone()
-                                    if row2 is not None:
+                                    if has_track(
+                                        conn, isrc=isrc, qobuz_id=str(track_id)
+                                    ):
                                         console.print(
-                                            "[cyan]Already in library (by Qobuz ID); skipping download[/cyan]"
+                                            "[cyan]Already in library; skipping download[/cyan]"
                                         )
-                                        conn.close()
                                         return
                                 finally:
                                     try:
@@ -210,8 +205,16 @@ async def _download_tidal(
     artist_limit: int = 50,
 ):
     """Internal function to download from Tidal."""
-    # Quality fallback for Tidal: hires -> lossless -> mp3
-    quality_fallback = ["hires", "lossless", "mp3"] if quality == "max" else [quality]
+    # Quality fallback for Tidal
+    # - max: hires -> lossless -> mp3
+    # - hires: hires -> lossless
+    # - lossless: lossless (no mp3 unless user opted in)
+    if quality == "max":
+        quality_fallback = ["hires", "lossless", "mp3"]
+    elif str(quality).lower() in {"hires", "hi-res", "hi_res", "3"}:
+        quality_fallback = ["hires", "lossless"]
+    else:
+        quality_fallback = [quality]
     try:
         plugin = TidalPlugin(correlation_id=correlation_id, rps=tidal_rps)
         for q in quality_fallback:
@@ -309,6 +312,7 @@ async def _download_from_url(
     verify: bool = False,
     prefer_29: Optional[bool] = None,
     concurrency: int = 4,
+    default_quality: Optional[str] = None,
 ):
     """Auto-detect service from URL and download."""
     console.print(f"🔍 Detecting service from URL: [blue]{url}[/blue]")
@@ -322,7 +326,7 @@ async def _download_from_url(
         if media_type == "track":
             await _download_tidal(
                 track_id=media_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -331,7 +335,7 @@ async def _download_from_url(
         elif media_type == "album":
             await _download_tidal(
                 album_id=media_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -340,7 +344,7 @@ async def _download_from_url(
         elif media_type == "playlist":
             await _download_tidal(
                 playlist_id=media_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -351,7 +355,7 @@ async def _download_from_url(
         else:
             await _download_tidal(
                 artist_id=media_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -373,7 +377,7 @@ async def _download_from_url(
         if media_type == "track":
             await _download_qobuz(
                 track_id=final_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -383,7 +387,7 @@ async def _download_from_url(
         elif media_type == "album":
             await _download_qobuz(
                 album_id=final_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -394,7 +398,7 @@ async def _download_from_url(
         elif media_type == "playlist":
             await _download_qobuz(
                 playlist_id=final_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -405,7 +409,7 @@ async def _download_from_url(
         else:  # artist
             await _download_qobuz(
                 artist_id=final_id,
-                quality="max",
+                quality=default_quality or "max",
                 output_dir=output_dir,
                 allow_mp3=allow_mp3,
                 correlation_id=correlation_id,
@@ -436,10 +440,25 @@ async def get_main(
     verify: bool = False,
     try_29: bool = False,
     artist_limit: int = 50,
+    output_override: Optional[Path] = None,
+    url_quality: Optional[str] = None,
 ):
     """Internal function to handle the main download logic."""
     settings = get_settings()
-    output_dir = settings.download_path.resolve()
+    output_dir = (output_override or settings.download_path).resolve()
+
+    # Ensure library database is accessible before attempting any downloads
+    if not dry_run:
+        try:
+            from ..core.database import get_db_connection, init_db
+
+            db_path = settings.db_path or (settings.library_path / "flaccid.db")
+            conn = get_db_connection(db_path)
+            init_db(conn)
+            conn.close()
+        except Exception as e:
+            console.print(f"[red]Error: Unable to access library database:[/red] {e}")
+            raise typer.Exit(1)
 
     # Validate mutually-exclusive content-type flags
     selected_types = sum(bool(x) for x in (track, album, playlist, artist))
@@ -449,6 +468,21 @@ async def get_main(
             " --artist may be specified."
         )
         raise typer.Exit(1)
+
+    # Ensure DB is accessible (create/initialize if needed) unless dry-run
+    if not dry_run:
+        try:
+            db_path = settings.db_path or (settings.library_path / "flaccid.db")
+            conn = get_db_connection(db_path)
+            try:
+                init_db(conn)
+            finally:
+                conn.close()
+        except Exception as e:
+            console.print(
+                f"[red]Error:[/red] Unable to access or initialize database at {db_path}: {e}"
+            )
+            raise typer.Exit(1)
 
     # If it's a URL, auto-detect and download
     if _is_url(input_value):
@@ -467,6 +501,9 @@ async def get_main(
                 verify,
                 prefer_29=try_29,
                 concurrency=concurrency,
+                default_quality=(
+                    _normalize_quality(url_quality) if url_quality else None
+                ),
             )
             return
 
@@ -819,6 +856,12 @@ def main(
         "--artist",
         help="Treat ID/URL as artist",
     ),
+    out: Optional[Path] = typer.Option(
+        None,
+        "--out",
+        "-o",
+        help="Output directory for downloads (URL autodetect mode)",
+    ),
     artist_limit: int = typer.Option(
         50,
         "--limit",
@@ -854,6 +897,11 @@ def main(
         "--try-29",
         "-29",
         help="Try Qobuz format 29 before 27 (default skips 29)",
+    ),
+    quality: Optional[str] = typer.Option(
+        None,
+        "--quality",
+        help="Quality for URL autodetect: max|hires|lossless|mp3|1-4",
     ),
 ):
     """
@@ -892,6 +940,9 @@ def main(
             tidal_rps,
             verify,
             try_29,
+            artist_limit,
+            out,
+            quality,
         )
     )
     if json_output:
