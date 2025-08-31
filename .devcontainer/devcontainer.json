@@ -1044,7 +1044,8 @@
 	"customizations": {
 		"vscode": {
 			"extensions": [
-				"openai.chatgpt"
+				"openai.chatgpt",
+				"hnw.vscode-auto-open-markdown-preview"
 			]
 		}
 	}

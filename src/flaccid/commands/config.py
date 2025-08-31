@@ -697,6 +697,7 @@ def config_show(
     t_access = get_credentials("tidal", "access_token")
     t_refresh = get_credentials("tidal", "refresh_token")
 
+    # Base data from loaded settings
     data = {
         "paths": {
             "library": str(settings.library_path),
@@ -715,6 +716,25 @@ def config_show(
         },
     }
 
+    # Override with project-local settings.toml if present
+    local_file = Path("settings.toml")
+    if local_file.exists():
+        try:
+            local_cfg = toml.loads(local_file.read_text(encoding="utf-8")) or {}
+            if "library_path" in local_cfg:
+                data["paths"]["library"] = str(
+                    Path(local_cfg["library_path"]).expanduser().resolve()
+                )
+            if "download_path" in local_cfg:
+                data["paths"]["download"] = str(
+                    Path(local_cfg["download_path"]).expanduser().resolve()
+                )
+            if "db_path" in local_cfg:
+                data["paths"]["database"] = str(
+                    Path(local_cfg["db_path"]).expanduser().resolve()
+                )
+        except Exception:
+            pass
     if json_raw:
         typer.echo(json.dumps(data))
         return
@@ -722,13 +742,14 @@ def config_show(
         console.print_json(json.dumps(data))
         return
 
-    # Pretty (text) output
-    if plain:
-        typer.echo("Current Configuration")
-        typer.echo("")
-        typer.echo("Paths:")
-        typer.echo(f"  Library:  {data['paths']['library']}")
-        typer.echo(f"  Download: {data['paths']['download']}")
+        # Pretty (text) output
+        if plain:
+            typer.echo("Current Configuration")
+            typer.echo("")
+            typer.echo("Paths:")
+            typer.echo(f"  Library:  {data['paths']['library']}")
+            typer.echo(f"  Download: {data['paths']['download']}")
+            typer.echo(f"  Database: {data['paths']['database']}")
         typer.echo("")
         typer.echo("Qobuz Credentials:")
         if data["qobuz"]["app_id"]:
@@ -756,6 +777,7 @@ def config_show(
     console.print("\n[bold]Paths:[/bold]")
     console.print(f"  Library:  [blue]{data['paths']['library']}[/blue]")
     console.print(f"  Download: [blue]{data['paths']['download']}[/blue]")
+    console.print(f"  Database: [blue]{data['paths']['database']}[/blue]")
 
     console.print("\n[bold]Qobuz Credentials:[/bold]")
     if data["qobuz"]["app_id"]:
@@ -783,7 +805,7 @@ def config_show(
 def config_validate(
     service: str = typer.Argument(
         ..., help="Service to validate (e.g., 'qobuz' or 'tidal')."
-    )
+    ),
 ):
     """Validate presence (and for Tidal, simple expiry info) of stored credentials."""
     svc = service.lower()
@@ -834,7 +856,7 @@ def config_validate(
 def config_clear(
     service: str = typer.Argument(
         ..., help="Service to clear credentials for (e.g., 'qobuz' or 'tidal')."
-    )
+    ),
 ):
     """
     Permanently delete all stored credentials for a specific service.

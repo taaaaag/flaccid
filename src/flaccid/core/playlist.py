@@ -17,6 +17,7 @@ from rich.progress import track
 
 # from .config import get_settings  # unused
 from .database import get_db_connection
+from .config import get_settings
 
 console = Console()
 
@@ -165,12 +166,14 @@ class PlaylistParser:
 class PlaylistMatcher:
     """Matches playlist tracks against the local library database."""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, service: str = "all"):
         self.conn = get_db_connection(db_path)
         self.conn.create_function("normalize", 1, self._normalize)
         self.conn.create_function(
             "fuzz_ratio", 2, lambda s1, s2: fuzz.ratio(s1 or "", s2 or "")
         )
+        # Matching strategy: 'isrc', 'fuzzy', 'path', or 'all'
+        self.service = (service or "all").lower()
 
     def __del__(self):
         if self.conn:
@@ -219,74 +222,149 @@ class PlaylistMatcher:
         return 0.6 * title_score + 0.4 * artist_score
 
     def match_playlist(self, playlist_tracks: List[PlaylistTrack]) -> List[MatchResult]:
-        results = []
+        """
+        Match a list of PlaylistTrack items, applying both fuzzy and path-based fallback.
+        """
+        results: List[MatchResult] = []
         for item in track(playlist_tracks, description="Matching tracks..."):
-            candidates = self._get_candidates(item)
-            best_match, best_score = None, 0.0
-            if candidates:
-                best_match = candidates[0]
-                best_score = self._calculate_score(item, best_match)
-
-            if best_score > 85:  # High-confidence threshold
-                results.append(
-                    MatchResult(
-                        input_track=item,
-                        matched_track=best_match,
-                        match_score=best_score,
-                        file_path=Path(best_match["path"]),
-                    )
-                )
-            else:
-                results.append(MatchResult(input_track=item))
+            result = self.match_one(item)
+            results.append(result)
         return results
 
+    def match_one(self, track: PlaylistTrack) -> MatchResult:
+        """
+        Match a single PlaylistTrack and return its MatchResult.
+        """
+    # Determine matching strategy
+    strategy = getattr(self, 'service', 'all') or 'all'
+    # Priority 1: exact ISRC match if enabled
+    if strategy in ('isrc', 'all') and track.isrc:
+            # split on semicolon, comma, slash, pipe, or whitespace
+            codes = re.split(r"[;,/\\|\\s]+", track.isrc)
+                # Determine matching strategy
+                strategy = (self.service or "all").lower()
 
-class PlaylistExporter:
-    """Exports matched playlist results to various file formats."""
+                # Priority 1: exact ISRC match if enabled
+                if strategy in ("isrc", "all") and track.isrc:
+                    codes = re.split(r"[;,/\\|\\s]+", track.isrc)
+                    for code in codes:
+                        code = code.strip()
+                        if not code:
+                            continue
+                        cursor = self.conn.cursor()
+                        cursor.execute(
+                            "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
+                        )
+                        row = cursor.fetchone()
+                        if row:
+                            candidate = dict(row)
+                            raw_path = candidate.get("path")
+                            file_path = Path(raw_path) if raw_path else None
+                            return MatchResult(
+                                input_track=track,
+                                matched_track=candidate,
+                                match_score=100.0,
+                                match_reasons=[f"isrc_match:{code}"],
+                                    # Determine matching strategy
+                                    strategy = (self.service or "all").lower()
 
-    def export(self, results: List[MatchResult], output_path: Path, format: str):
-        if format == "m3u":
-            self._export_m3u(results, output_path)
-        elif format == "json":
-            self._export_json(results, output_path)
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
+                                    # Priority 1: exact ISRC match if enabled
+                                    if strategy in ("isrc", "all") and track.isrc:
+                                        codes = re.split(r"[;,/\\|\\s]+", track.isrc)
+                                        for code in codes:
+                                            code = code.strip()
+                                            if not code:
+                                                continue
+                                            cursor = self.conn.cursor()
+                                            cursor.execute(
+                                                "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
+                                            )
+                                            row = cursor.fetchone()
+                                            if row:
+                                                candidate = dict(row)
+                                                raw_path = candidate.get("path")
+                                                file_path = Path(raw_path) if raw_path else None
+                                                return MatchResult(
+                                                    input_track=track,
+                                                    matched_track=candidate,
+                                                    match_score=100.0,
+                                                    match_reasons=[f"isrc_match:{code}"],
+                                                    file_path=file_path,
+                                                )
 
-    def _export_m3u(self, results: List[MatchResult], output_path: Path):
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("#EXTM3U\n")
-            for result in results:
-                if result.file_path and result.file_path.exists():
-                    duration = (
-                        result.matched_track.get("duration", -1)
-                        if result.matched_track
-                        else -1
-                    )
-                    artist = (
-                        result.matched_track.get("artist", "")
-                        if result.matched_track
-                        else result.input_track.artist
-                    )
-                    title = (
-                        result.matched_track.get("title", "")
-                        if result.matched_track
-                        else result.input_track.title
-                    )
-                    f.write(f"#EXTINF:{duration},{artist} - {title}\n")
-                    f.write(f"{result.file_path.resolve()}\n")
+                                    # Priority 2: fuzzy title/artist match if enabled
+                                    if strategy in ("fuzzy", "all"):
+                                        candidates = self._get_candidates(track)
+                                        best_match, best_score = None, 0.0
+                                        if candidates:
+                                            best_match = candidates[0]
+                                            best_score = self._calculate_score(track, best_match)
+                                        if best_score > 85 and isinstance(best_match, dict):
+                                                # Determine matching strategy
+                                                strategy = (self.service or "all").lower()
 
-    def _export_json(self, results: List[MatchResult], output_path: Path):
-        report = {
-            "exported_at": datetime.now().isoformat(),
-            "results": [
-                {
-                    "input_track": asdict(r.input_track),
-                    "matched_track": r.matched_track,
-                    "match_score": r.match_score,
-                    "file_path": str(r.file_path.resolve()) if r.file_path else None,
-                }
-                for r in results
-            ],
-        }
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
+                                                # Priority 1: exact ISRC match if enabled
+                                                if strategy in ("isrc", "all") and track.isrc:
+                                                    codes = re.split(r"[;,/\\|\\s]+", track.isrc)
+                                                    for code in codes:
+                                                        code = code.strip()
+                                                        if not code:
+                                                            continue
+                                                        cursor = self.conn.cursor()
+                                                        cursor.execute(
+                                                            "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
+                                                        )
+                                                        row = cursor.fetchone()
+                                                        if row:
+                                                            candidate = dict(row)
+                                                            raw_path = candidate.get("path")
+                                                            file_path = Path(raw_path) if raw_path else None
+                                                            return MatchResult(
+                                                                input_track=track,
+                                                                matched_track=candidate,
+                                                                match_score=100.0,
+                                                                match_reasons=[f"isrc_match:{code}"],
+                                                                file_path=file_path,
+                                                            )
+
+                                                # Priority 2: fuzzy title/artist match if enabled
+                                                if strategy in ("fuzzy", "all"):
+                                                    candidates = self._get_candidates(track)
+                                                    best_match, best_score = None, 0.0
+                                                    if candidates:
+                                                        best_match = candidates[0]
+                                                        best_score = self._calculate_score(track, best_match)
+                                                    if best_score > 85 and isinstance(best_match, dict):
+                                                        raw_path = best_match.get("path")
+                                                        file_path = Path(raw_path) if raw_path else None
+                                                        return MatchResult(
+                                                            input_track=track,
+                                                            matched_track=best_match,
+                                                            match_score=best_score,
+                                                            file_path=file_path,
+                                                        )
+
+                                                # Priority 3: path-based fallback if enabled
+                                                if strategy in ("path", "all"):
+                                                    try:
+                                                        cursor = self.conn.cursor()
+                                                        pattern = f"%{track.title.strip().lower()}%"
+                                                        cursor.execute(
+                                                            "SELECT * FROM tracks WHERE lower(path) LIKE ? LIMIT 1", (pattern,)
+                                                        )
+                                                        row = cursor.fetchone()
+                                                        if row:
+                                                            candidate = dict(row)
+                                                            raw_path = candidate.get("path")
+                                                            fallback_path = Path(raw_path) if raw_path else None
+                                                            return MatchResult(
+                                                                input_track=track,
+                                                                matched_track=candidate,
+                                                                match_score=0.0,
+                                                                match_reasons=["path_fallback"],
+                                                                file_path=fallback_path,
+                                                            )
+                                                    except Exception:
+                                                        pass
+
+                                                return MatchResult(input_track=track)

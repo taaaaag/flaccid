@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 
 from ..core.config import get_settings
+import toml
 from ..core.playlist import (
     MatchResult,
     PlaylistExporter,
@@ -36,6 +37,12 @@ def playlist_match(
     output: Optional[Path] = typer.Option(
         None, "--output", "-o", help="Output file for the detailed JSON match report."
     ),
+    songshift: bool = typer.Option(
+        False,
+        "--songshift",
+        "-s",
+        help="Treat input JSON as SongShift format (nested 'tracks' list).",
+    ),
 ):
     """
     Match a playlist against your library and save a detailed report.
@@ -44,6 +51,24 @@ def playlist_match(
         output = input_file.with_suffix(".match.json")
 
     settings = get_settings()
+    # Override with project-local settings.toml if present
+    local_file = Path("settings.toml")
+    if local_file.exists():
+        try:
+            local_cfg = toml.loads(local_file.read_text(encoding="utf-8")) or {}
+            if "library_path" in local_cfg:
+                settings.library_path = (
+                    Path(local_cfg["library_path"]).expanduser().resolve()
+                )
+            if "db_path" in local_cfg:
+                settings.db_path = Path(local_cfg["db_path"]).expanduser().resolve()
+        except Exception:
+            pass
+    # Debug: show loaded settings
+    console.print(f"🔧 Using library_path: [bold]{settings.library_path}[/bold]")
+    # Compute effective DB path (fallback if not explicitly set)
+    effective_db = settings.db_path or (settings.library_path / "flaccid.db")
+    console.print(f"🔧 Using db_path: [bold]{effective_db}[/bold]")
     # Respect explicit DB override if configured
     db_path = settings.db_path or (settings.library_path / "flaccid.db")
 
@@ -53,12 +78,27 @@ def playlist_match(
     exporter = PlaylistExporter()
 
     try:
+        # Parse playlist into PlaylistTrack objects (JSON, M3U, CSV, etc.)
         tracks = parser.parse_file(input_file)
-        results = matcher.match_playlist(tracks)
+
+        # Match each track individually and log input/output info
+        results = []
+        for track in tracks:
+            console.print(f"🎵 Input: {track.artist} - {track.title}")
+            result = matcher.match_one(track)
+            if result.matched_track:
+                mt = result.matched_track
+                console.print(
+                    f"  ✅ Matched: {mt.get('artist', '')} - {mt.get('title', '')} "
+                    f"(score: {result.match_score:.1f})"
+                )
+            else:
+                console.print("  ❌ No match found")
+            results.append(result)
         matched_count = sum(1 for r in results if r.matched_track)
 
         console.print(
-            f"✅ Match complete. Matched {matched_count}/{len(results)} tracks ({matched_count/len(results)*100:.1f}%)"
+            f"✅ Match complete. Matched {matched_count}/{len(results)} tracks ({matched_count / len(results) * 100:.1f}%)"
         )
         exporter.export(results, output, "json")
         console.print(f"💾 Full match report saved to: [blue]{output}[/blue]")
@@ -67,7 +107,8 @@ def playlist_match(
         )
 
     except Exception as e:
-        raise typer.Exit(f"[red]An error occurred: {e}[/red]")
+        console.print(f"[red]An error occurred: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("export")
@@ -131,4 +172,5 @@ def playlist_export(
         console.print(f"✅ Exported matched tracks to: [blue]{output}[/blue]")
 
     except Exception as e:
-        raise typer.Exit(f"[red]An error occurred during export: {e}[/red]")
+        console.print(f"[red]An error occurred during export: {e}[/red]")
+        raise typer.Exit(1)
