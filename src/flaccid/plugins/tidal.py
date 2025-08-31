@@ -80,13 +80,6 @@ class TidalPlugin(BasePlugin):
         except (requests.RequestException, requests.HTTPError) as e:
             raise Exception(f"Tidal API check failed: {e}") from e
 
-        # Best-effort: discover countryCode from the active session to match
-        # account/region (avoids forcing users to set FLA_TIDAL_COUNTRY).
-        try:
-            await self._discover_country_code()
-        except Exception:
-            pass
-
     async def _check_auth(self):
         """Verifies access token via /v1/me; gracefully handles OpenAPI 404.
 
@@ -129,40 +122,6 @@ class TidalPlugin(BasePlugin):
                 "corr": self.correlation_id,
             },
         )
-
-    async def _discover_country_code(self):
-        """Fetch current session/user info to set an accurate country code.
-
-        Tries common hosts; tolerates failures. Updates self.country_code on success.
-        """
-        hosts = [TIDAL_API_URL, TIDAL_API_ALT_URL, TIDAL_API_FALLBACK_URL]
-        for base in hosts:
-            try:
-                await self._limiter.acquire()
-                resp = self.session.get(
-                    f"{base}/v1/sessions",
-                    headers={"Accept": "application/vnd.tidal.v1+json"},
-                    timeout=8,
-                )
-                if resp.status_code == 404 and base != TIDAL_API_FALLBACK_URL:
-                    continue
-                resp.raise_for_status()
-                j = resp.json() or {}
-                cc = (
-                    j.get("countryCode")
-                    or (j.get("session") or {}).get("countryCode")
-                    or (j.get("resource") or {}).get("countryCode")
-                )
-                if cc and isinstance(cc, str) and len(cc) in (2, 3):
-                    # Normalize to upper case; prefer 2-letter code if given
-                    self.country_code = cc.upper()
-                    logger.debug(
-                        "tidal.session.country",
-                        extra={"provider": "tidal", "country": self.country_code},
-                    )
-                    return
-            except Exception:
-                continue
 
     async def _refresh_access_token(self):
         """Uses the stored refresh token to obtain a new access token."""
