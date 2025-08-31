@@ -3,6 +3,7 @@ Playlist matching and export commands for FLACCID (`fla playlist`).
 """
 
 import json
+from dataclasses import asdict  # for SongShift JSON export
 from pathlib import Path
 from typing import List, Optional
 
@@ -42,6 +43,11 @@ def playlist_match(
         "--songshift",
         "-s",
         help="Treat input JSON as SongShift format (nested 'tracks' list).",
+    ),
+    roon: bool = typer.Option(
+        False,
+        "--roon",
+        help="Export an M3U8 playlist for Roon of matched tracks and SongShift-style JSON of missing tracks.",
     ),
 ):
     """
@@ -100,11 +106,26 @@ def playlist_match(
         console.print(
             f"✅ Match complete. Matched {matched_count}/{len(results)} tracks ({matched_count / len(results) * 100:.1f}%)"
         )
-        exporter.export(results, output, "json")
-        console.print(f"💾 Full match report saved to: [blue]{output}[/blue]")
-        console.print(
-            "👉 You can now use the `export` command on the .match.json file."
-        )
+        if roon:
+            # Export a .m3u8 for Roon
+            m3u8_path = input_file.with_suffix(".m3u8")
+            exporter.export(results, m3u8_path, "m3u")
+            console.print(f"✅ Roon playlist saved to: [blue]{m3u8_path}[/blue]")
+            # Export missing tracks as SongShift JSON
+            missing = [r.input_track for r in results if not r.matched_track]
+            missing_payload = {"tracks": [asdict(t) for t in missing]}
+            missing_json = input_file.with_suffix(".missing.json")
+            with open(missing_json, "w", encoding="utf-8") as f:
+                json.dump(missing_payload, f, ensure_ascii=False, indent=2)
+            console.print(
+                f"✅ Missing SongShift JSON saved to: [blue]{missing_json}[/blue]"
+            )
+        else:
+            exporter.export(results, output, "json")
+            console.print(f"💾 Full match report saved to: [blue]{output}[/blue]")
+            console.print(
+                "👉 You can now use the `export` command on the .match.json file."
+            )
 
     except Exception as e:
         console.print(f"[red]An error occurred: {e}[/red]")
