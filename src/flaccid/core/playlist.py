@@ -235,136 +235,108 @@ class PlaylistMatcher:
         """
         Match a single PlaylistTrack and return its MatchResult.
         """
-    # Determine matching strategy
-    strategy = getattr(self, 'service', 'all') or 'all'
-    # Priority 1: exact ISRC match if enabled
-    if strategy in ('isrc', 'all') and track.isrc:
+        # Determine matching strategy
+        strategy = (self.service or "all").lower()
+
+        # Priority 1: exact ISRC match if enabled
+        if strategy in ("isrc", "all") and track.isrc:
             # split on semicolon, comma, slash, pipe, or whitespace
-            codes = re.split(r"[;,/\\|\\s]+", track.isrc)
-                # Determine matching strategy
-                strategy = (self.service or "all").lower()
+            codes = re.split(r"[;,/\\|\s]+", track.isrc)
+            for code in codes:
+                code = code.strip()
+                if not code:
+                    continue
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    candidate = dict(row)
+                    raw_path = candidate.get("path")
+                    file_path = Path(raw_path) if raw_path else None
+                    return MatchResult(
+                        input_track=track,
+                        matched_track=candidate,
+                        match_score=100.0,
+                        match_reasons=[f"isrc_match:{code}"],
+                        file_path=file_path,
+                    )
 
-                # Priority 1: exact ISRC match if enabled
-                if strategy in ("isrc", "all") and track.isrc:
-                    codes = re.split(r"[;,/\\|\\s]+", track.isrc)
-                    for code in codes:
-                        code = code.strip()
-                        if not code:
-                            continue
-                        cursor = self.conn.cursor()
-                        cursor.execute(
-                            "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
-                        )
-                        row = cursor.fetchone()
-                        if row:
-                            candidate = dict(row)
-                            raw_path = candidate.get("path")
-                            file_path = Path(raw_path) if raw_path else None
-                            return MatchResult(
-                                input_track=track,
-                                matched_track=candidate,
-                                match_score=100.0,
-                                match_reasons=[f"isrc_match:{code}"],
-                                    # Determine matching strategy
-                                    strategy = (self.service or "all").lower()
+        # Priority 2: fuzzy title/artist match if enabled
+        if strategy in ("fuzzy", "all"):
+            candidates = self._get_candidates(track)
+            best_match, best_score = None, 0.0
+            if candidates:
+                best_match = candidates[0]
+                best_score = self._calculate_score(track, best_match)
+            if best_score > 85 and isinstance(best_match, dict):
+                raw_path = best_match.get("path")
+                file_path = Path(raw_path) if raw_path else None
+                return MatchResult(
+                    input_track=track,
+                    matched_track=best_match,
+                    match_score=best_score,
+                    file_path=file_path,
+                )
 
-                                    # Priority 1: exact ISRC match if enabled
-                                    if strategy in ("isrc", "all") and track.isrc:
-                                        codes = re.split(r"[;,/\\|\\s]+", track.isrc)
-                                        for code in codes:
-                                            code = code.strip()
-                                            if not code:
-                                                continue
-                                            cursor = self.conn.cursor()
-                                            cursor.execute(
-                                                "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
-                                            )
-                                            row = cursor.fetchone()
-                                            if row:
-                                                candidate = dict(row)
-                                                raw_path = candidate.get("path")
-                                                file_path = Path(raw_path) if raw_path else None
-                                                return MatchResult(
-                                                    input_track=track,
-                                                    matched_track=candidate,
-                                                    match_score=100.0,
-                                                    match_reasons=[f"isrc_match:{code}"],
-                                                    file_path=file_path,
-                                                )
+        # Priority 3: path-based fallback if enabled
+        if strategy in ("path", "all"):
+            try:
+                cursor = self.conn.cursor()
+                pattern = f"%{track.title.strip().lower()}%"
+                cursor.execute(
+                    "SELECT * FROM tracks WHERE lower(path) LIKE ? LIMIT 1", (pattern,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    candidate = dict(row)
+                    raw_path = candidate.get("path")
+                    fallback_path = Path(raw_path) if raw_path else None
+                    return MatchResult(
+                        input_track=track,
+                        matched_track=candidate,
+                        match_score=0.0,
+                        match_reasons=["path_fallback"],
+                        file_path=fallback_path,
+                    )
+            except Exception:
+                pass
 
-                                    # Priority 2: fuzzy title/artist match if enabled
-                                    if strategy in ("fuzzy", "all"):
-                                        candidates = self._get_candidates(track)
-                                        best_match, best_score = None, 0.0
-                                        if candidates:
-                                            best_match = candidates[0]
-                                            best_score = self._calculate_score(track, best_match)
-                                        if best_score > 85 and isinstance(best_match, dict):
-                                                # Determine matching strategy
-                                                strategy = (self.service or "all").lower()
+        return MatchResult(input_track=track)
 
-                                                # Priority 1: exact ISRC match if enabled
-                                                if strategy in ("isrc", "all") and track.isrc:
-                                                    codes = re.split(r"[;,/\\|\\s]+", track.isrc)
-                                                    for code in codes:
-                                                        code = code.strip()
-                                                        if not code:
-                                                            continue
-                                                        cursor = self.conn.cursor()
-                                                        cursor.execute(
-                                                            "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
-                                                        )
-                                                        row = cursor.fetchone()
-                                                        if row:
-                                                            candidate = dict(row)
-                                                            raw_path = candidate.get("path")
-                                                            file_path = Path(raw_path) if raw_path else None
-                                                            return MatchResult(
-                                                                input_track=track,
-                                                                matched_track=candidate,
-                                                                match_score=100.0,
-                                                                match_reasons=[f"isrc_match:{code}"],
-                                                                file_path=file_path,
-                                                            )
 
-                                                # Priority 2: fuzzy title/artist match if enabled
-                                                if strategy in ("fuzzy", "all"):
-                                                    candidates = self._get_candidates(track)
-                                                    best_match, best_score = None, 0.0
-                                                    if candidates:
-                                                        best_match = candidates[0]
-                                                        best_score = self._calculate_score(track, best_match)
-                                                    if best_score > 85 and isinstance(best_match, dict):
-                                                        raw_path = best_match.get("path")
-                                                        file_path = Path(raw_path) if raw_path else None
-                                                        return MatchResult(
-                                                            input_track=track,
-                                                            matched_track=best_match,
-                                                            match_score=best_score,
-                                                            file_path=file_path,
-                                                        )
+class PlaylistExporter:
+    """Export matched playlist results to various formats (M3U for now)."""
 
-                                                # Priority 3: path-based fallback if enabled
-                                                if strategy in ("path", "all"):
-                                                    try:
-                                                        cursor = self.conn.cursor()
-                                                        pattern = f"%{track.title.strip().lower()}%"
-                                                        cursor.execute(
-                                                            "SELECT * FROM tracks WHERE lower(path) LIKE ? LIMIT 1", (pattern,)
-                                                        )
-                                                        row = cursor.fetchone()
-                                                        if row:
-                                                            candidate = dict(row)
-                                                            raw_path = candidate.get("path")
-                                                            fallback_path = Path(raw_path) if raw_path else None
-                                                            return MatchResult(
-                                                                input_track=track,
-                                                                matched_track=candidate,
-                                                                match_score=0.0,
-                                                                match_reasons=["path_fallback"],
-                                                                file_path=fallback_path,
-                                                            )
-                                                    except Exception:
-                                                        pass
-
-                                                return MatchResult(input_track=track)
+    def export(self, results: List[MatchResult], output: Path, format: str = "m3u") -> None:
+        fmt = (format or "m3u").lower()
+        if fmt not in ("m3u", "m3u8"):
+            raise ValueError(f"Unsupported playlist export format: {format}")
+        lines: List[str] = ["#EXTM3U"]
+        for r in results:
+            # Only export entries with a concrete file path
+            if not r.file_path:
+                continue
+            title = None
+            artist = None
+            duration = None
+            try:
+                mt = r.matched_track or {}
+                title = mt.get("title")
+                artist = mt.get("artist")
+                duration = mt.get("duration")
+            except Exception:
+                pass
+            # Duration in seconds; default to 0 if unavailable
+            dur_val = 0
+            try:
+                if duration is not None:
+                    dur_val = int(duration)
+            except Exception:
+                dur_val = 0
+            name = f"{(artist or '').strip()} - {(title or '').strip()}".strip(" -")
+            lines.append(f"#EXTINF:{dur_val},{name}")
+            # Write path as-is
+            lines.append(str(r.file_path))
+        output.write_text("\n".join(lines) + "\n", encoding="utf-8")

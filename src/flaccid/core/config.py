@@ -11,6 +11,7 @@ ensuring consistent configuration throughout the application.
 """
 
 import os
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -87,13 +88,31 @@ _settings_instance: Optional[FlaccidSettings] = None
 
 
 def get_settings() -> FlaccidSettings:
-    """Get the application settings as a singleton Pydantic model."""
+    """Get the application settings as a singleton Pydantic model.
+
+    Honors FLA_SETTINGS_PATH when set: a JSON file path used for persistence in tests.
+    """
     global _settings_instance
     if _settings_instance is None:
         try:
-            config_dict = settings_loader.as_dict() or {}
+            config_dict = {}
 
-            # If a project-local settings file exists, optionally overlay explicitly
+            # 1) Special env path for tests or explicit override (JSON file)
+            env_settings_path = os.getenv("FLA_SETTINGS_PATH")
+            if env_settings_path:
+                p = Path(env_settings_path)
+                if p.exists():
+                    try:
+                        config_dict.update(json.loads(p.read_text(encoding="utf-8")) or {})
+                    except Exception:
+                        # If malformed, ignore and continue with other layers
+                        pass
+
+            # 2) Dynaconf loader (project + user scope)
+            dc_dict = settings_loader.as_dict() or {}
+            config_dict.update(dc_dict)
+
+            # 3) Optional project-local settings.toml overlay
             ignore_local = os.getenv("FLA_IGNORE_LOCAL_SETTINGS") == "1"
             if (not ignore_local) and LOCAL_SETTINGS_FILE.exists():
                 try:
@@ -104,10 +123,9 @@ def get_settings() -> FlaccidSettings:
                     if isinstance(local_data, dict):
                         config_dict.update(local_data)
                 except Exception:
-                    # Ignore malformed local settings; fall back to other layers
                     pass
 
-            # Explicit environment overrides for robustness
+            # 4) Explicit environment overrides
             env_lib = os.getenv("FLA_LIBRARY_PATH")
             env_dl = os.getenv("FLA_DOWNLOAD_PATH")
             env_db = os.getenv("FLA_DB_PATH")
@@ -135,7 +153,11 @@ def get_settings() -> FlaccidSettings:
 
 
 def save_settings(new_settings: FlaccidSettings):
-    """Save updated settings to the project-local `settings.toml` file."""
+    """Save updated settings.
+
+    If FLA_SETTINGS_PATH is set, persist as JSON to that file (used by tests).
+    Also update Dynaconf/local/user TOML as a best-effort for normal operation.
+    """
     global _settings_instance
     # Update in-memory loader for immediate use
     settings_loader.set("library_path", str(new_settings.library_path))
@@ -143,7 +165,7 @@ def save_settings(new_settings: FlaccidSettings):
     if new_settings.db_path is not None:
         settings_loader.set("db_path", str(new_settings.db_path))
 
-    # Persist settings for both local (project) and user scope so CLI picks them up
+    # Data payload
     data = {
         "library_path": str(new_settings.library_path),
         "download_path": str(new_settings.download_path),
@@ -151,13 +173,23 @@ def save_settings(new_settings: FlaccidSettings):
     if new_settings.db_path is not None:
         data["db_path"] = str(new_settings.db_path)
 
-    # Write project-local settings (used in dev/tests unless ignored)
+    # 1) Special env path for tests (JSON)
+    env_settings_path = os.getenv("FLA_SETTINGS_PATH")
+    if env_settings_path:
+        try:
+            p = Path(env_settings_path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(data), encoding="utf-8")
+        except Exception:
+            pass
+
+    # 2) Project-local settings (used in dev/tests unless ignored)
     try:
         LOCAL_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")
     except Exception:
         pass
 
-    # Write user-level settings (preferred for real runs and when local overrides are ignored)
+    # 3) User-level settings
     try:
         USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         USER_SETTINGS_FILE.write_text(toml.dumps(data), encoding="utf-8")

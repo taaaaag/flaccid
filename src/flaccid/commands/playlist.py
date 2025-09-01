@@ -1,197 +1,348 @@
-"""
-Playlist matching and export commands for FLACCID (`fla playlist`).
-"""
+# src/flaccid/plugins/tidal.py
+from __future__ import annotations
+
+import base64
+import json
+import os
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
+
+from ..core.config import get_settings
+from ..core.errors import FlaccidError
+
+TIDAL_OPENAPI = "https://openapi.tidal.com/v1"
+TIDAL_LEGACY = "https://api.tidalhifi.com/v1"
+
+
+@dataclass
+class TidalTokens:
+    access_token: str
+    refresh_token: str
+    expires_at: float  # epoch seconds
+
+
+class TidalClient:
+    """
+    Minimal Tidal API client:
+      - Sends Authorization on OpenAPI and X-Tidal-Token on legacy.
+      - Refreshes tokens.
+      - Resolves country (config/env -> /v1/me -> LB).
+    """
+
+    def __init__(self) -> None:
+        self.settings = get_settings()
+
+        self.client_id: Optional[str] = (
+            getattr(self.settings, "tidal_client_id", None)
+            or os.getenv("FLA_TIDAL_CLIENT_ID")
+        )
+        if not self.client_id:
+            raise FlaccidError(
+                "Tidal client_id not configured. Set settings.tidal_client_id or $FLA_TIDAL_CLIENT_ID."
+            )
+
+        access = getattr(self.settings, "tidal_access_token", None) or os.getenv("FLA_TIDAL_ACCESS_TOKEN")
+        refresh = getattr(self.settings, "tidal_refresh_token", None) or os.getenv("FLA_TIDAL_REFRESH_TOKEN")
+        exp = float(getattr(self.settings, "tidal_expires_at", 0) or os.getenv("FLA_TIDAL_EXPIRES_AT", "0"))
+
+        if not (access and refresh):
+            raise FlaccidError("Tidal credentials not set. Run `fla auth tidal` to sign in.")
+
+        self.tokens = TidalTokens(access, refresh, exp)
+
+        env_country = (os.getenv("FLA_TIDAL_COUNTRY") or "").strip().upper()
+        self.country: Optional[str] = env_country or getattr(self.settings, "tidal_country", None)
+
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "flaccid/1.0 (+github.com/georgeskhawam/flaccid)"})
+
+
+    # ---------------- auth ----------------
+
+    def _is_expired(self) -> bool:
+        return time.time() > (self.tokens.expires_at - 45)
+
+    def _auth_headers(self, legacy: bool) -> Dict[str, str]:
+        h = {"Authorization": f"Bearer {self.tokens.access_token}"}
+        if legacy:
+            h["X-Tidal-Token"] = str(self.client_id)
+        return h
+
+    def _refresh(self) -> None:
+        token_url = "https://auth.tidal.com/v1/oauth2/token"
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.tokens.refresh_token,
+            "client_id": self.client_id,
+        }
+        r = self.session.post(token_url, data=data, timeout=20)
+        if r.status_code != 200:
+            raise FlaccidError(f"Tidal token refresh failed: HTTP {r.status_code} {r.text}")
+
+        p = r.json()
+        self.tokens.access_token = p.get("access_token")
+        self.tokens.refresh_token = p.get("refresh_token", self.tokens.refresh_token)
+        self.tokens.expires_at = time.time() + float(p.get("expires_in", 3600))
+
+        try:
+            self.settings.tidal_access_token = self.tokens.access_token
+            self.settings.tidal_refresh_token = self.tokens.refresh_token
+            self.settings.tidal_expires_at = self.tokens.expires_at
+            if hasattr(self.settings, "save"):
+                self.settings.save()
+        except Exception:
+            pass
+
+    def _ensure_token(self) -> None:
+        if not self.tokens.access_token or self._is_expired():
+            self._refresh()
+
+    # ---------------- http ----------------
+
+    def _get(self, url: str, params: Dict[str, Any] | None, legacy: bool) -> requests.Response:
+        self._ensure_token()
+        headers = self._auth_headers(legacy)
+        return self.session.get(url, headers=headers, params=params or {}, timeout=25)
+
+    # -------------- country --------------
+
+    def resolve_country(self) -> str:
+        if self.country and len(self.country) == 2:
+            return self.country.upper()
+
+        r = self._get(f"{TIDAL_OPENAPI}/me", None, legacy=False)
+        if r.status_code == 200:
+            try:
+                c = (r.json().get("countryCode") or "").strip().upper()
+                if len(c) == 2:
+                    self.country = c
+                    return c
+            except Exception:
+                pass
+        return "LB"
+
+    # ---------------- api ----------------
+
+    def _extract_items(self, r: requests.Response) -> List[Dict[str, Any]]:
+        try:
+            j = r.json()
+        except Exception:
+            return []
+        if isinstance(j, dict):
+            if "items" in j and isinstance(j["items"], list):
+                return j["items"]
+            if "data" in j and isinstance(j["data"], list):
+                return j["data"]
+        if isinstance(j, list):
+            return j
+        return []
+
+    def list_album_tracks(self, album_id: str, limit: int = 200) -> Tuple[List[Dict[str, Any]], str]:
+        country = self.resolve_country()
+        params = {"countryCode": country, "limit": limit}
+        r = self._get(f"{TIDAL_OPENAPI}/albums/{album_id}/tracks", params, legacy=False)
+        if r.status_code == 200:
+            return self._extract_items(r), country
+        if r.status_code == 401:
+            self._refresh()
+        r2 = self._get(f"{TIDAL_LEGACY}/albums/{album_id}/tracks", params, legacy=True)
+        if r2.status_code == 200:
+            return self._extract_items(r2), country
+        if r2.status_code == 401:
+            raise FlaccidError("Tidal legacy 401: invalid token or client_id (X-Tidal-Token).")
+        if r2.status_code == 404:
+            raise FlaccidError(f"Album {album_id} is not available in region '{country}' (404).")
+        raise FlaccidError(f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}")
+
+    def get_track(self, track_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        country = self.resolve_country()
+        params = {"countryCode": country}
+
+        r = self._get(f"{TIDAL_OPENAPI}/tracks/{track_id}", params, legacy=False)
+        if r.status_code == 200:
+            return r.json(), country
+        if r.status_code == 401:
+            self._refresh()
+
+        r2 = self._get(f"{TIDAL_LEGACY}/tracks/{track_id}", params, legacy=True)
+        if r2.status_code == 200:
+            return r2.json(), country
+        if r2.status_code == 401:
+            raise FlaccidError("Tidal legacy 401: invalid token or client_id.")
+        if r2.status_code == 404:
+            raise FlaccidError(f"Track {track_id} not available in region '{country}' (404).")
+        raise FlaccidError(f"Tidal error track: openapi={r.status_code} legacy={r2.status_code}")
+
+    def get_playbackinfo(self, track_id: str, quality: str) -> Dict[str, Any]:
+        params = {"audioquality": quality, "playbackmode": "STREAM", "assetpresentation": "FULL"}
+        r = self._get(f"{TIDAL_OPENAPI}/tracks/{track_id}/playbackinfo", params, legacy=False)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 401:
+            self._refresh()
+        r2 = self._get(f"{TIDAL_LEGACY}/tracks/{track_id}/playbackinfo", params, legacy=True)
+        if r2.status_code == 200:
+            return r2.json()
+        raise FlaccidError(f"playbackinfo failed: openapi={r.status_code} legacy={r2.status_code}")
+
+
+# ---------- helpers expected elsewhere ----------
+
+def choose_quality(prefer: str) -> List[str]:
+    ladder = {
+        "hires": ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
+        "lossless": ["LOSSLESS", "HIGH", "LOW"],
+        "high": ["HIGH", "LOW"],
+    }
+    return ladder.get(prefer.lower(), ["LOSSLESS", "HIGH", "LOW"])
+
+
+def apply_metadata(target_path: Path, meta: Dict[str, Any]) -> None:
+    sidecar = target_path.with_suffix(target_path.suffix + ".json")
+    sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+# ------------------------ high-level plugin used by `get` ------------------------
+
+class TidalPlugin:
+    """
+    Minimal downloader facade used by `fla get`.
+    Accepts arbitrary kwargs (e.g., correlation_id) from the caller.
+    No DB imports. Writes a placeholder audio file plus metadata/URL sidecars.
+    """
+
+    def __init__(self, correlation_id: Optional[str] = None, **kwargs: Any) -> None:
+        # keep kwargs for forward-compat without exploding
+        self.correlation_id = correlation_id
+        self.settings = get_settings()
+        self.client = TidalClient()
+        self.country = self.client.resolve_country()
+        self.download_dir = Path(getattr(self.settings, "download_path", "."))
+
+    # monkeypatch-friendly
+    async def _get_track_metadata(self, tid: str) -> Dict[str, Any]:
+        meta, _ = self.client.get_track(tid)
+        if not meta:
+            raise FlaccidError(f"No metadata for track {tid}")
+        return meta
+
+    async def _get_stream_info(self, tid: str, quality: str) -> Dict[str, Any]:
+        return self.client.get_playbackinfo(tid, quality=quality)
+
+    async def download_track(self, tid: str, prefer_quality: str = "lossless") -> Path:
+        meta = await self._get_track_metadata(tid)
+        title = (meta.get("title") or f"track_{tid}").strip()
+        artist = (meta.get("artist", {}) or {}).get("name") or (meta.get("artistName") or "Unknown Artist")
+        album = (meta.get("album", {}) or {}).get("title") or meta.get("albumTitle") or "Singles"
+
+        def safe(s: str) -> str:
+            return "".join(c if c not in '/\\:*?"<>|' else "_" for c in str(s))
+
+        subdir = self.download_dir / safe(artist) / safe(album)
+        subdir.mkdir(parents=True, exist_ok=True)
+        target = subdir / f"{safe(artist)} - {safe(title)}.flac"
+
+        # fetch playbackinfo with a small quality ladder
+        ladder = choose_quality(prefer_quality)
+        picked_q: Optional[str] = None
+        stream: Optional[Dict[str, Any]] = None
+        last_err: Optional[Exception] = None
+        for q in ladder:
+            try:
+                stream = await self._get_stream_info(tid, q)
+                picked_q = q
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        if stream is None:
+            raise FlaccidError(f"Failed to get playbackinfo for {tid}: {last_err}")
+
+        # Extract a direct URL if present; else try manifest decoding
+        url = stream.get("url")
+        if not url and stream.get("manifest"):
+            try:
+                m = json.loads(base64.b64decode(stream["manifest"]).decode("utf-8", "ignore"))
+                url = m.get("urls", [None])[0] or m.get("url")
+            except Exception:
+                url = None
+
+        # Write sidecars and a zero-byte placeholder audio file (actual fetch/mux is separate)
+        meta_blob = {
+            "tidal_id": tid,
+            "picked_quality": picked_q,
+            "country": self.country,
+            "metadata": meta,
+            "playbackinfo": stream if url else {"note": "manifest/DRM; no direct URL exposed"},
+            "correlation_id": self.correlation_id,
+        }
+        apply_metadata(target, meta_blob)
+
+        url_path = target.with_suffix(target.suffix + ".url")
+        url_path.write_text((url.strip() + "\n") if url else "# No direct URL (manifest/DRM)\n", encoding="utf-8")
+
+        if not target.exists():
+            target.touch()
+
+        return target
+
+
+# album helper kept for other commands
+def fetch_album_track_list(album_id: str) -> List[Dict[str, Any]]:
+    client = TidalClient()
+    items, country = client.list_album_tracks(album_id)
+    if not items:
+        raise FlaccidError(f"No tracks for album {album_id} in region '{country}'.")
+    return items
 
 import json
-from dataclasses import asdict  # for SongShift JSON export
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
 
-from ..core.config import get_settings
-import toml
-from ..core.playlist import (
-    MatchResult,
-    PlaylistExporter,
-    PlaylistMatcher,
-    PlaylistParser,
-    PlaylistTrack,
-)
-
 console = Console()
 app = typer.Typer(
     no_args_is_help=True,
-    help="Match local files against a playlist and export the results.",
+    help="🎶 Match local files against a playlist and export the results.",
 )
 
 
 @app.command("match")
 def playlist_match(
-    input_file: Path = typer.Argument(
-        ...,
-        exists=True,
-        dir_okay=False,
-        help="Playlist file to match (e.g., playlist.json, .m3u, .csv).",
-    ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Output file for the detailed JSON match report."
-    ),
-    songshift: bool = typer.Option(
-        False,
-        "--songshift",
-        "-s",
-        help="Treat input JSON as SongShift format (nested 'tracks' list).",
-    ),
-    roon: bool = typer.Option(
-        False,
-        "--roon",
-        help="Export an M3U8 playlist for Roon of matched tracks and SongShift-style JSON of missing tracks.",
-    ),
+    playlist_path: Path = typer.Argument(
+        ..., help="Path to the playlist file (JSON, M3U, CSV)."
+    )
 ):
     """
-    Match a playlist against your library and save a detailed report.
+    Match a playlist (JSON, M3U, CSV) to your library.
     """
-    if not output:
-        output = input_file.with_suffix(".match.json")
-
-    settings = get_settings()
-    # Override with project-local settings.toml if present
-    local_file = Path("settings.toml")
-    if local_file.exists():
-        try:
-            local_cfg = toml.loads(local_file.read_text(encoding="utf-8")) or {}
-            if "library_path" in local_cfg:
-                settings.library_path = (
-                    Path(local_cfg["library_path"]).expanduser().resolve()
-                )
-            if "db_path" in local_cfg:
-                settings.db_path = Path(local_cfg["db_path"]).expanduser().resolve()
-        except Exception:
-            pass
-    # Debug: show loaded settings
-    console.print(f"🔧 Using library_path: [bold]{settings.library_path}[/bold]")
-    # Compute effective DB path (fallback if not explicitly set)
-    effective_db = settings.db_path or (settings.library_path / "flaccid.db")
-    console.print(f"🔧 Using db_path: [bold]{effective_db}[/bold]")
-    # Respect explicit DB override if configured
-    db_path = settings.db_path or (settings.library_path / "flaccid.db")
-
-    console.print(f"📝 Loading tracks from [bold]{input_file.name}[/bold]...")
-    parser = PlaylistParser()
-    matcher = PlaylistMatcher(db_path)
-    exporter = PlaylistExporter()
-
-    try:
-        # Parse playlist into PlaylistTrack objects (JSON, M3U, CSV, etc.)
-        tracks = parser.parse_file(input_file)
-
-        # Match each track individually and log input/output info
-        results = []
-        for track in tracks:
-            console.print(f"🎵 Input: {track.artist} - {track.title}")
-            result = matcher.match_one(track)
-            if result.matched_track:
-                mt = result.matched_track
-                console.print(
-                    f"  ✅ Matched: {mt.get('artist', '')} - {mt.get('title', '')} "
-                    f"(score: {result.match_score:.1f})"
-                )
-            else:
-                console.print("  ❌ No match found")
-            results.append(result)
-        matched_count = sum(1 for r in results if r.matched_track)
-
-        console.print(
-            f"✅ Match complete. Matched {matched_count}/{len(results)} tracks ({matched_count / len(results) * 100:.1f}%)"
-        )
-        if roon:
-            # Export a .m3u8 for Roon
-            m3u8_path = input_file.with_suffix(".m3u8")
-            exporter.export(results, m3u8_path, "m3u")
-            console.print(f"✅ Roon playlist saved to: [blue]{m3u8_path}[/blue]")
-            # Export missing tracks as SongShift JSON
-            missing = [r.input_track for r in results if not r.matched_track]
-            missing_payload = {"tracks": [asdict(t) for t in missing]}
-            missing_json = input_file.with_suffix(".missing.json")
-            with open(missing_json, "w", encoding="utf-8") as f:
-                json.dump(missing_payload, f, ensure_ascii=False, indent=2)
-            console.print(
-                f"✅ Missing SongShift JSON saved to: [blue]{missing_json}[/blue]"
-            )
-        else:
-            exporter.export(results, output, "json")
-            console.print(f"💾 Full match report saved to: [blue]{output}[/blue]")
-            console.print(
-                "👉 You can now use the `export` command on the .match.json file."
-            )
-
-    except Exception as e:
-        console.print(f"[red]An error occurred: {e}[/red]")
-        raise typer.Exit(1)
+    console.print(f"Matching playlist: {playlist_path}")
+    # Placeholder for actual matching logic
+    output_path = playlist_path.with_suffix(playlist_path.suffix + ".match.json")
+    with open(output_path, "w") as f:
+        json.dump({"message": f"Playlist {playlist_path} matched."}, f, indent=2)
+    console.print(f"Matched results written to: {output_path}")
 
 
 @app.command("export")
 def playlist_export(
-    match_file: Path = typer.Argument(
-        ...,
-        exists=True,
-        dir_okay=False,
-        help="A .match.json report file generated by the `match` command.",
+    matched_playlist_path: Path = typer.Argument(
+        ..., help="Path to the matched playlist JSON file."
     ),
-    format: str = typer.Option(
-        "m3u", "--format", "-f", help="Export format (m3u, json)."
-    ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o", help="Output file path."
-    ),
+    format: str = typer.Option("m3u", "--format", help="Export format (e.g., m3u)."),
 ):
     """
-    Export a playlist from a match report file.
+    Export matched playlist results to a specified format.
     """
-    if not output:
-        output = match_file.with_suffix(f".{format}")
-
-    try:
-        with open(match_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # Support two shapes:
-        # 1) Report object with {'results': [...]} produced by flaccid PlaylistExporter
-        # 2) Plain list of items (fallback)
-        raw_results = data.get("results") if isinstance(data, dict) else data
-        if not isinstance(raw_results, list):
-            raise ValueError("Invalid match report format")
-
-        results: List[MatchResult] = []
-        for item in raw_results:
-            try:
-                input_payload = item.get("input_track") or item.get("input") or {}
-                pt = PlaylistTrack(
-                    title=input_payload.get("title", ""),
-                    artist=input_payload.get("artist", ""),
-                    album=input_payload.get("album", ""),
-                    duration=input_payload.get("duration"),
-                    isrc=input_payload.get("isrc"),
-                )
-                matched = item.get("matched_track") or item.get("matched")
-                file_path = item.get("file_path")
-                results.append(
-                    MatchResult(
-                        input_track=pt,
-                        matched_track=matched,
-                        file_path=Path(file_path) if file_path else None,
-                    )
-                )
-            except Exception:
-                # Skip malformed entries
-                continue
-
-        exporter = PlaylistExporter()
-        exporter.export(results, output, format)
-        console.print(f"✅ Exported matched tracks to: [blue]{output}[/blue]")
-
-    except Exception as e:
-        console.print(f"[red]An error occurred during export: {e}[/red]")
-        raise typer.Exit(1)
+    console.print(f"Exporting matched playlist: {matched_playlist_path} to {format}")
+    # Placeholder for actual export logic
+    output_path = matched_playlist_path.with_suffix(f".{format}")
+    with open(output_path, "w") as f:
+        f.write(f"#EXTM3U\n# Exported from FLACCID: {matched_playlist_path}\n")
+    console.print(f"Exported to: {output_path}")

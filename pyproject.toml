@@ -54,3 +54,6 @@ exclude = [
 ]
 reportMissingImports = false
 typeCheckingMode = "off"
+
+[tool.uv.workspace]
+members = ["mcp-server-demo"]

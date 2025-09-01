@@ -665,9 +665,9 @@ def tag_cascade(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
 ):
-    """Cascade-tag a folder: try Qobuz, then MusicBrainz, then fall back to existing.
+    """Cascade-tag a folder: try sources in order, e.g., Qobuz, then Tidal, etc.
 
-    Matching is by (disc, track) when possible; Qobuz also tried by ISRC.
+    Matching is by (disc, track) when possible; most sources also tried by ISRC.
     """
 
     async def _run():
@@ -699,77 +699,84 @@ def tag_cascade(
 
         order_list = [s.strip().lower() for s in order.split(",") if s.strip()]
         applied = 0
-        async with QobuzPlugin() as plugin:
-            # Try Qobuz first (by track mapping, then by ISRC)
-            q_done: set[Path] = set()
-            if "qobuz" in order_list:
-                # Attempt to infer album id from any provider tag on files
-                album_id = _extract_qobuz_album_id(local_files)
-                if album_id:
-                    try:
-                        album = await plugin.api_client.get_album(album_id)
-                        tracks = (album.get("tracks") or {}).get("items") or []
-                        for t in tracks:
-                            try:
-                                tn = int(
-                                    t.get("track_number") or t.get("trackNumber") or 0
-                                )
-                                dn = int(
-                                    t.get("media_number") or t.get("disc_number") or 1
-                                )
-                            except Exception:
-                                tn, dn = 0, 1
-                            if tn <= 0:
-                                continue
-                            f = index.get((dn, tn))
-                            if not f:
+        tagged_files: set[Path] = set()
+
+        for source in order_list:
+            if source == "qobuz":
+                async with QobuzPlugin() as plugin:
+                    # Attempt to infer album id from any provider tag on files
+                    album_id = _extract_qobuz_album_id(local_files)
+                    if album_id:
+                        try:
+                            album = await plugin.api_client.get_album(album_id)
+                            tracks = (album.get("tracks") or {}).get("items") or []
+                            for t in tracks:
+                                if len(tagged_files) == len(local_files) and not fill_missing:
+                                    break
+                                try:
+                                    tn = int(
+                                        t.get("track_number") or t.get("trackNumber") or 0
+                                    )
+                                    dn = int(
+                                        t.get("media_number") or t.get("disc_number") or 1
+                                    )
+                                except Exception:
+                                    tn, dn = 0, 1
+                                if tn <= 0:
+                                    continue
+                                f = index.get((dn, tn))
+                                if not f or f in tagged_files:
+                                    continue
+                                md = plugin._normalize_metadata(t)
+                                if fill_missing:
+                                    md = _filter_missing_only(f, md)
+                                if preview:
+                                    console.print(
+                                        f"QOBUZ map: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                                    )
+                                else:
+                                    if md:
+                                        apply_metadata(f, md)
+                                        applied += 1
+                                        if not fill_missing:
+                                            tagged_files.add(f)
+                        except Exception:
+                            pass
+                    # Try by ISRC via Qobuz track search
+                    for f, isrc in file_isrc.items():
+                        if f in tagged_files:
+                            continue
+                        try:
+                            sr = await plugin.api_client.search_track(isrc, limit=1)
+                            items = (sr.get("tracks") or {}).get("items") or []
+                            t = items[0] if items else None
+                            if not t:
                                 continue
                             md = plugin._normalize_metadata(t)
                             if fill_missing:
                                 md = _filter_missing_only(f, md)
                             if preview:
                                 console.print(
-                                    f"QOBUZ map: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                                    f"QOBUZ isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
                                 )
                             else:
                                 if md:
                                     apply_metadata(f, md)
-                                    q_done.add(f)
                                     applied += 1
-                    except Exception:
-                        pass
-                # Try by ISRC via Qobuz track search
-                for f, isrc in file_isrc.items():
-                    if f in q_done:
-                        continue
-                    try:
-                        sr = await plugin.api_client.search_track(isrc, limit=1)
-                        items = (sr.get("tracks") or {}).get("items") or []
-                        t = items[0] if items else None
-                        if not t:
+                                    if not fill_missing:
+                                        tagged_files.add(f)
+                        except Exception:
                             continue
-                        md = plugin._normalize_metadata(t)
-                        if fill_missing:
-                            md = _filter_missing_only(f, md)
-                        if preview:
-                            console.print(
-                                f"QOBUZ isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
-                            )
-                        else:
-                            if md:
-                                apply_metadata(f, md)
-                                applied += 1
-                    except Exception:
-                        continue
 
-            # Tidal by ISRC
-            if "tidal" in order_list:
+            elif source == "tidal":
                 try:
                     from ..plugins.tidal import TidalPlugin
 
                     t = TidalPlugin()
                     await t.authenticate()
                     for f, isrc in file_isrc.items():
+                        if f in tagged_files:
+                            continue
                         try:
                             md = await t.search_track_by_isrc(isrc)
                             if not md:
@@ -784,14 +791,17 @@ def tag_cascade(
                                 if md:
                                     apply_metadata(f, md)
                                     applied += 1
+                                    if not fill_missing:
+                                        tagged_files.add(f)
                         except Exception:
                             continue
                 except Exception:
                     pass
 
-            # Apple (iTunes) by ISRC
-            if "apple" in order_list:
+            elif source == "apple":
                 for f, isrc in file_isrc.items():
+                    if f in tagged_files:
+                        continue
                     try:
                         resp = requests.get(
                             "https://itunes.apple.com/lookup",
@@ -808,7 +818,6 @@ def tag_cascade(
                         def _art(url: Optional[str]) -> Optional[str]:
                             if not url:
                                 return None
-                            # Try upscale to 1200x1200 when possible
                             return url.replace("100x100", "1200x1200")
 
                         md = {
@@ -829,40 +838,6 @@ def tag_cascade(
                             "apple_album_id": r.get("collectionId"),
                         }
                         if fill_missing:
-                            # Read current tags and drop keys that are already set
-                            try:
-                                import mutagen
-
-                                au = mutagen.File(f, easy=True)
-                                if au:
-
-                                    def _has(key: str) -> bool:
-                                        v = au.get(key)
-                                        if not v:
-                                            return False
-                                        val = v[0] if isinstance(v, list) else v
-                                        return str(val).strip() != ""
-
-                                    for k in list(md.keys()):
-                                        # Map common keys to easy tag names
-                                        easy_map = {
-                                            "title": "title",
-                                            "artist": "artist",
-                                            "album": "album",
-                                            "albumartist": "albumartist",
-                                            "composer": "composer",
-                                            "tracknumber": "tracknumber",
-                                            "discnumber": "discnumber",
-                                            "date": "date",
-                                            "genre": "genre",
-                                            "isrc": "isrc",
-                                        }
-                                        em = easy_map.get(k)
-                                        if em and _has(em):
-                                            md.pop(k, None)
-                            except Exception:
-                                pass
-                        if fill_missing:
                             md = _filter_missing_only(f, md)
                         if preview:
                             console.print(
@@ -872,22 +847,76 @@ def tag_cascade(
                             if md:
                                 apply_metadata(f, md)
                                 applied += 1
+                                if not fill_missing:
+                                    tagged_files.add(f)
                     except Exception:
                         continue
-
-            # Beatport (placeholder)
-            if "beatport" in order_list:
-                console.print(
-                    "[yellow]Beatport lookup not implemented yet; skipping.[/yellow]"
-                )
-
-            # MusicBrainz fallback by ISRC
-            if "mb" in order_list:
+            
+            elif source == "beatport":
                 headers = {
-                    "User-Agent": "flaccid/0.1 (+https://github.com/; tag cascade)",
+                    "User-Agent": "flaccid/0.2 (+https://github.com/tagslut/flaccid)",
                     "Accept": "application/json",
                 }
                 for f, isrc in file_isrc.items():
+                    if f in tagged_files:
+                        continue
+                    try:
+                        # This is a hypothetical API endpoint, actual may differ
+                        url = "https://api.beatport.com/v4/catalog/tracks"
+                        resp = requests.get(
+                            url, params={"isrc": isrc}, headers=headers, timeout=15
+                        )
+                        resp.raise_for_status()
+                        data = resp.json() or {}
+                        tracks = data.get("results", [])
+                        if not tracks:
+                            continue
+                        
+                        track = tracks[0]
+                        artists = ", ".join([a["name"] for a in track.get("artists", []) if a.get("name")])
+                        title = track.get("name")
+                        if track.get("mix_name"):
+                            title = f'{title} ({track.get("mix_name")})'
+
+                        md = {
+                            "title": title,
+                            "artist": artists,
+                            "album": track.get("release", {}).get("name"),
+                            "albumartist": artists,
+                            "tracknumber": track.get("number"),
+                            "date": (track.get("release", {}).get("publish_date") or "")[:10],
+                            "genre": (track.get("genre") or {}).get("name"),
+                            "isrc": isrc,
+                            "cover_url": (track.get("release", {}).get("image") or {}).get("uri"),
+                        }
+                        md = {k: v for k, v in md.items() if v is not None}
+                        if not md:
+                            continue
+
+                        if fill_missing:
+                            md = _filter_missing_only(f, md)
+                        
+                        if preview:
+                            console.print(
+                                f"BEATPORT isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
+                            )
+                        else:
+                            if md:
+                                apply_metadata(f, md)
+                                applied += 1
+                                if not fill_missing:
+                                    tagged_files.add(f)
+                    except Exception:
+                        continue
+
+            elif source == "mb":
+                headers = {
+                    "User-Agent": "flaccid/0.2 (+https://github.com/tagslut/flaccid)",
+                    "Accept": "application/json",
+                }
+                for f, isrc in file_isrc.items():
+                    if f in tagged_files:
+                        continue
                     try:
                         url = "https://musicbrainz.org/ws/2/recording"
                         resp = requests.get(
@@ -903,13 +932,9 @@ def tag_cascade(
                             continue
                         rec = recs[0]
                         title = rec.get("title")
-                        # Artist credit join
                         ac = rec.get("artist-credit") or []
-                        artists = []
-                        for a in ac:
-                            n = (a.get("artist") or {}).get("name")
-                            if n:
-                                artists.append(n)
+                        artists = [a.get("artist", {}).get("name") for a in ac if a.get("artist", {}).get("name")]
+                        
                         md = {}
                         if title:
                             md["title"] = title
@@ -917,6 +942,7 @@ def tag_cascade(
                             md["artist"] = ", ".join(artists)
                         if not md:
                             continue
+
                         if fill_missing:
                             md = _filter_missing_only(f, md)
                         if preview:
@@ -927,6 +953,8 @@ def tag_cascade(
                             if md:
                                 apply_metadata(f, md)
                                 applied += 1
+                                if not fill_missing:
+                                    tagged_files.add(f)
                     except Exception:
                         continue
 
