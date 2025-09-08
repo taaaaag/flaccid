@@ -158,6 +158,24 @@ class TidalClient:
             raise FlaccidError(f"Album {album_id} is not available in region '{country}' (404).")
         raise FlaccidError(f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}")
 
+    def list_playlist_tracks(self, playlist_id: str, limit: int = 1000) -> Tuple[List[Dict[str, Any]], str]:
+        """Return playlist items (track objects or wrappers) and resolved country."""
+        country = self.resolve_country()
+        params = {"countryCode": country, "limit": limit}
+        r = self._get(f"{TIDAL_OPENAPI}/playlists/{playlist_id}/tracks", params, legacy=False)
+        if r.status_code == 200:
+            return self._extract_items(r), country
+        if r.status_code == 401:
+            self._refresh()
+        r2 = self._get(f"{TIDAL_LEGACY}/playlists/{playlist_id}/tracks", params, legacy=True)
+        if r2.status_code == 200:
+            return self._extract_items(r2), country
+        if r2.status_code == 401:
+            raise FlaccidError("Tidal legacy 401: invalid token or client_id.")
+        if r2.status_code in (400, 404):
+            raise FlaccidError(f"Playlist {playlist_id} not available in region '{country}' ({r2.status_code}).")
+        raise FlaccidError(f"Tidal error playlist tracks: openapi={r.status_code} legacy={r2.status_code}")
+
     def get_track(self, track_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         country = self.resolve_country()
         params = {"countryCode": country}

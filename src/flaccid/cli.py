@@ -6,6 +6,7 @@ and defines global options like --version and --verbose.
 """
 
 import asyncio
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -107,6 +108,17 @@ def main(
         console.print("[yellow]Verbose logging enabled.[/yellow]")
     if quiet:
         console.print("[yellow]Quiet mode: warnings and errors only.[/yellow]")
+
+
+# Simple top-level alias: `fla pm` → `fla tag playlist-match`
+@app.command("pm")
+def pm(
+    url: str = typer.Argument(None, help="Playlist URL (omit to use clipboard)"),
+    out: Path = typer.Option(None, "-o", "--out", help="Base name for outputs"),
+    prefer_qobuz: bool = typer.Option(True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"),
+):
+    from .commands import tag as tag_cmd
+    return tag_cmd.tag_playlist_match(url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out)
 
 
 def cli():
