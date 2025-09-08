@@ -1050,32 +1050,40 @@ def tag_playlist_match(
         songshift_path = Path(f"missing_{service}_{_now_stamp()}.txt")
 
     def fetch_qobuz_playlist(playlist_url: str):
-        import re
+        import re, asyncio as _asyncio
         m = re.search(r"playlist/(\d+)", playlist_url)
         if not m:
             console.print("[red]Could not extract Qobuz playlist ID from URL.[/red]")
             raise typer.Exit(1)
         playlist_id = m.group(1)
-        api_url = f"https://www.qobuz.com/api.json/0.2/playlist/get?playlist_id={playlist_id}"
-        resp = requests.get(api_url, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        tracks = data.get("tracks", {}).get("items", [])
-        out = []
-        for t in tracks:
-            track = t.get("track", t)
-            out.append(
-                {
-                    "title": track.get("title"),
-                    "artist": track.get("performer", {}).get("name")
-                    or track.get("artist", {}).get("name"),
-                    "album": track.get("album", {}).get("title"),
-                    "isrc": track.get("isrc"),
-                    "qobuz_id": track.get("id"),
-                    "tidal_id": None,
-                }
+        async def _fetch():
+            async with QobuzPlugin() as plugin:
+                js = await plugin.api_client.get_playlist(playlist_id, limit=500)
+                items = (js.get("tracks") or {}).get("items") or []
+                out = []
+                for t in items:
+                    track = t.get("track", t)
+                    out.append(
+                        {
+                            "title": track.get("title"),
+                            "artist": (track.get("performer") or {}).get("name")
+                            or (track.get("artist") or {}).get("name"),
+                            "album": (track.get("album") or {}).get("title"),
+                            "isrc": track.get("isrc"),
+                            "qobuz_id": track.get("id"),
+                            "tidal_id": None,
+                        }
+                    )
+                return out
+        try:
+            return _asyncio.run(_fetch())
+        except Exception as e:
+            console.print(
+                "[red]Qobuz playlist fetch failed.[/red] "
+                "Tip: run 'fla config auto-qobuz' to sign in."
             )
-        return out
+            console.print(f"[dim]Detail: {e}\n[/dim]")
+            raise typer.Exit(1)
 
     def fetch_tidal_playlist(playlist_url: str):
         import re
@@ -1206,11 +1214,12 @@ def tag_playlist_match(
             out_lines = []
             for t in missing:
                 if prefer_qobuz and t.get("qobuz_id"):
-                    out_lines.append(f"qobuz:track:{t['qobuz_id']}")
+                    out_lines.append(f"https://open.qobuz.com/track/{t['qobuz_id']}")
                 elif t.get("tidal_id"):
-                    out_lines.append(f"tidal:track:{t['tidal_id']}")
+                    out_lines.append(f"https://tidal.com/browse/track/{t['tidal_id']}")
                 elif t.get("isrc"):
-                    out_lines.append(f"isrc:{t['isrc']}")
+                    # Fallback: provider search URL by ISRC (Qobuz first)
+                    out_lines.append(f"https://open.qobuz.com/search?q={t['isrc']}")
                 else:
                     out_lines.append(f"{t['artist']} - {t['title']}")
             with open(songshift_path, "w", encoding="utf-8") as f:
