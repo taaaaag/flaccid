@@ -964,3 +964,143 @@ def tag_cascade(
             )
 
     asyncio.run(_run())
+
+
+@app.command("playlist-match")
+def tag_playlist_match(
+    url: str = typer.Argument(..., help="Tidal or Qobuz playlist URL"),
+    m3u_path: Optional[Path] = typer.Option(None, "--m3u", help="Output M3U file"),
+    songshift_path: Optional[Path] = typer.Option(None, "--songshift", help="Output SongShift playlist file"),
+    prefer_qobuz: bool = typer.Option(True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"),
+):
+    """
+    Match a streaming playlist to your library, output M3U and SongShift playlist.
+    """
+    import sqlite3
+    import json
+    from difflib import SequenceMatcher
+
+    def fetch_qobuz_playlist(playlist_url: str):
+        # Extract playlist id from URL
+        import re
+        m = re.search(r"playlist/(\d+)", playlist_url)
+        if not m:
+            raise typer.Exit("Could not extract Qobuz playlist ID from URL.")
+        playlist_id = m.group(1)
+        api_url = f"https://www.qobuz.com/api.json/0.2/playlist/get?playlist_id={playlist_id}"
+        resp = requests.get(api_url)
+        resp.raise_for_status()
+        data = resp.json()
+        tracks = data.get("tracks", {}).get("items", [])
+        out = []
+        for t in tracks:
+            track = t.get("track", t)
+            out.append({
+                "title": track.get("title"),
+                "artist": track.get("performer", {}).get("name") or track.get("artist", {}).get("name"),
+                "album": track.get("album", {}).get("title"),
+                "isrc": track.get("isrc"),
+                "qobuz_id": track.get("id"),
+                "tidal_id": None,
+            })
+        return out
+
+    def fetch_tidal_playlist(playlist_url: str):
+        # Extract playlist UUID from URL
+        import re
+        m = re.search(r"playlist/([a-f0-9\-]+)", playlist_url)
+        if not m:
+            raise typer.Exit("Could not extract Tidal playlist ID from URL.")
+        playlist_id = m.group(1)
+        api_url = f"https://listen.tidal.com/v1/playlists/{playlist_id}/tracks?countryCode=US&limit=1000"
+        headers = {"accept": "application/json"}
+        resp = requests.get(api_url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        tracks = data.get("items", [])
+        out = []
+        for t in tracks:
+            out.append({
+                "title": t.get("title"),
+                "artist": t.get("artist", {}).get("name"),
+                "album": t.get("album", {}).get("title"),
+                "isrc": t.get("isrc"),
+                "qobuz_id": None,
+                "tidal_id": t.get("id"),
+            })
+        return out
+
+    def match_track_in_library(db_path, track):
+        # Try ISRC, then fuzzy title/artist
+        with sqlite3.connect(db_path) as conn:
+            if track.get("isrc"):
+                row = conn.execute(
+                    "SELECT path, title, artist, album FROM tracks WHERE isrc = ?", (track["isrc"],)
+                ).fetchone()
+                if row:
+                    return {"path": row[0], "title": row[1], "artist": row[2], "album": row[3]}
+            # Fuzzy match
+            rows = conn.execute(
+                "SELECT path, title, artist, album FROM tracks WHERE title IS NOT NULL AND artist IS NOT NULL"
+            ).fetchall()
+            best = None
+            best_score = 0.0
+            for r in rows:
+                score = (
+                    SequenceMatcher(None, (track["title"] or "").lower(), (r[1] or "").lower()).ratio() * 0.6 +
+                    SequenceMatcher(None, (track["artist"] or "").lower(), (r[2] or "").lower()).ratio() * 0.4
+                )
+                if score > best_score:
+                    best_score = score
+                    best = r
+            if best and best_score > 0.85:
+                return {"path": best[0], "title": best[1], "artist": best[2], "album": best[3]}
+        return None
+
+    # Detect service
+    if "qobuz.com" in url:
+        playlist_tracks = fetch_qobuz_playlist(url)
+    elif "tidal.com" in url:
+        playlist_tracks = fetch_tidal_playlist(url)
+    else:
+        raise typer.Exit("URL must be a Qobuz or Tidal playlist.")
+
+    # Get DB path
+    from ..core.config import get_settings
+    settings = get_settings()
+    db_path = settings.db_path or (settings.library_path / "flaccid.db")
+
+    matched = []
+    missing = []
+    for t in playlist_tracks:
+        m = match_track_in_library(db_path, t)
+        if m:
+            matched.append({**t, **m})
+        else:
+            missing.append(t)
+
+    # Write M3U
+    if m3u_path:
+        with open(m3u_path, "w", encoding="utf-8") as f:
+            for t in matched:
+                f.write(f"{t['path']}\n")
+        console.print(f"[green]M3U written:[/green] {m3u_path}")
+
+    # Write SongShift playlist (Qobuz first, fallback to Tidal)
+    if songshift_path:
+        out = []
+        for t in missing:
+            if prefer_qobuz and t.get("qobuz_id"):
+                out.append(f"qobuz:track:{t['qobuz_id']}")
+            elif t.get("tidal_id"):
+                out.append(f"tidal:track:{t['tidal_id']}")
+            elif t.get("isrc"):
+                out.append(f"isrc:{t['isrc']}")
+            else:
+                out.append(f"{t['artist']} - {t['title']}")
+        with open(songshift_path, "w", encoding="utf-8") as f:
+            for line in out:
+                f.write(line + "\n")
+        console.print(f"[green]SongShift playlist written:[/green] {songshift_path}")
+
+    console.print(f"[cyan]{len(matched)} tracks matched in library, {len(missing)} missing.[/cyan]")

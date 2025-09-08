@@ -290,8 +290,13 @@ def remove_track_by_path(conn: sqlite3.Connection, path: str):
         console.print(f"[red]Failed to remove track {path}: {e}[/red]")
 
 
-def insert_track(conn: sqlite3.Connection, track: Track) -> Optional[int]:
-    """Inserts or updates a track in the database."""
+def insert_track(conn: sqlite3.Connection, track: Track, *, commit: bool = True) -> Optional[int]:
+    """Inserts or updates a track in the database.
+
+    Parameters:
+        commit: If True (default), commits the transaction after the insert.
+                Set to False when batching many inserts and commit manually once.
+    """
     track_dict = asdict(track)
     track_dict.pop("id", None)
 
@@ -306,7 +311,8 @@ def insert_track(conn: sqlite3.Connection, track: Track) -> Optional[int]:
     try:
         cur = conn.cursor()
         cur.execute(sql, track_dict)
-        conn.commit()
+        if commit:
+            conn.commit()
         # Always return the row id for the path (lastrowid can be 0 on update)
         row = cur.execute(
             "SELECT id FROM tracks WHERE path = ?", (track.path,)

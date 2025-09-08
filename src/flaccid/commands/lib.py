@@ -134,6 +134,11 @@ def lib_index(
         "--dry-run",
         help="Preview files to index without writing to the database.",
     ),
+    verify: bool = typer.Option(
+        False,
+        "--verify",
+        help="Verify file integrity by hashing every file (slower).",
+    ),
 ):
     """
     Scan a directory and store metadata for all audio files in the database.
@@ -170,15 +175,20 @@ def lib_index(
         conn.close()
         raise typer.Exit("No audio files found to index.")
 
-    with Progress(console=console) as progress:
-        task = progress.add_task("[cyan]Indexing...[/cyan]", total=len(files_to_index))
-        for file_path in files_to_index:
-            track_data = index_file(
-                file_path, verify=True
-            )  # Always verify on full index
-            if track_data:
-                insert_track(conn, track_data)
-            progress.update(task, advance=1, description=f"Indexing {file_path.name}")
+    # Batch inserts in a single transaction for speed
+    conn.execute("BEGIN")
+    try:
+        with Progress(console=console) as progress:
+            task = progress.add_task("[cyan]Indexing...[/cyan]", total=len(files_to_index))
+            for file_path in files_to_index:
+                track_data = index_file(file_path, verify=verify)
+                if track_data:
+                    insert_track(conn, track_data, commit=False)
+                progress.update(task, advance=1, description=f"Indexing {file_path.name}")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
 
     conn.close()
     console.print("\n[green]✅ Library indexing complete![/green]")

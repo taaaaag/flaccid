@@ -198,29 +198,39 @@ Outputs a table by default; pass `--json` for machine-readable results.
 
 ---
 
-## Tagging (`fla tag`)
+## Tagging
 
-Update tags on existing files using provider metadata or local fixes.
+FLACCID provides advanced tagging and metadata management for your local music files. All tagging commands are now fully implemented and support FLAC, MP3, and M4A formats.
 
-```bash
-# Fix verbose ARTIST by using ALBUMARTIST
-fla tag fix-artist "/path/to/Album"
+### Tagging Commands
 
-# Same, and strip any "feat." from ARTIST
-fla tag fix-artist "/path/to/Album" --strip-feat
+- **Fix ARTIST tags:**
+  - `fla tag fix-artist /path/to/Album`
+  - Cleans up ARTIST tags, optionally using ALBUMARTIST and removing 'feat.' etc.
 
-# Tag a local folder from a known Qobuz album (fill only missing fields)
-fla tag qobuz -a i47v490x4a0xb "/path/to/Album" --fill-missing
+- **Qobuz tags:**
+  - `fla tag qobuz --album-id <id> /path/to/Album`
+  - Tags a local album folder using Qobuz album metadata.
 
-# Cascade metadata: tidal → apple → qobuz → musicbrainz
-fla tag cascade "/path/to/Album" --order "tidal,apple,qobuz,mb" --fill-missing
+- **Cascade tagging:**
+  - `fla tag cascade /path/to/Album --order "tidal,apple,qobuz,mb" --fill-missing`
+  - Tries multiple sources in order, filling missing tags from each.
 
-# Audit/fix basic metadata (report + optional fix)
-fla tag audit "/path/to/Album" --report audit.csv --fix
+- **Playlist match & export:**
+  - `fla tag playlist-match <playlist-url> --m3u matched.m3u --songshift missing.txt`
+  - Accepts a Qobuz or Tidal playlist URL, matches tracks to your library, and outputs:
+    - An M3U file with tracks found in your library
+    - A SongShift-style playlist (Qobuz-priority, fallback to Tidal/ISRC) for missing tracks
+  - Matching is by ISRC if available, otherwise by fuzzy title/artist match.
+
+#### Example: Matching a Playlist
+
+```sh
+fla tag playlist-match https://tidal.com/playlist/55b2c563-a238-4ebf-9a45-284fd5fbfa53 --m3u mylib.m3u --songshift missing.txt
 ```
 
-- `--fill-missing`: only fills empty tags; does not overwrite non-empty values.
-- Apple mapping includes composer, disc/track numbers, totals, release date, and upscaled artwork.
+- `mylib.m3u` will contain all tracks found in your library.
+- `missing.txt` will contain SongShift-compatible URIs for missing tracks (Qobuz first, then Tidal, then ISRC, then fallback to artist-title).
 
 ---
 
@@ -327,7 +337,6 @@ fla lib enrich-mb --limit 500
 ```bash
 fla lib enrich-mb-fuzzy --limit 200 --tolerance 6  # seconds
 ```
-```
 
 ### Duplicate Prevention
 
@@ -368,4 +377,3 @@ Enable completion for your shell (bash/zsh/fish/powershell). See:
 
 - Run: `fla completion` for a quick pointer
 - Details: docs/USAGE.md#shell-completion
-```
