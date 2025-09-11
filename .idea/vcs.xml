@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/AppleMusic-Downloader" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/Manzana-Apple-Music-Downloader" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/Manzana-Apple-Music-Tagger-Enhanced" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/Manzana-Apple-Music-Tagger-Enhanced/Manzana-Apple-Music-Tagger" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/apple-music-alac-downloader" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/apple-music-downloader" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/flaccid-most-recent-" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/flacslut-platform" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/docs/archive/freyr-js" vcs="Git" />
+  </component>
+</project>
