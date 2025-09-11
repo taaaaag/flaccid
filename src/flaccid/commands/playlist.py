@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -283,11 +283,13 @@ class TidalPlugin:
         # Extract a direct URL if present; else try manifest decoding
         url = stream.get("url")
         if not url and stream.get("manifest"):
-            try:
-                m = json.loads(base64.b64decode(stream["manifest"]).decode("utf-8", "ignore"))
-                url = m.get("urls", [None])[0] or m.get("url")
-            except Exception:
-                url = None
+            manifest_data = stream.get("manifest")
+            if manifest_data:
+                try:
+                    m = json.loads(base64.b64decode(manifest_data).decode("utf-8", "ignore"))
+                    url = m.get("urls", [None])[0] or m.get("url")
+                except Exception:
+                    url = None
 
         # Write sidecars and a zero-byte placeholder audio file (actual fetch/mux is separate)
         meta_blob = {
@@ -323,6 +325,7 @@ from typing import Optional
 
 import typer
 from rich.console import Console
+from ..plugins.tidal import TidalClient
 
 console = Console()
 app = typer.Typer(
@@ -341,10 +344,46 @@ def playlist_match(
     Match a playlist (JSON, M3U, CSV) to your library.
     """
     console.print(f"Matching playlist: {playlist_path}")
-    # Placeholder for actual matching logic
+
+    # Initialize TidalClient
+    tidal_client = TidalClient()
+
+    # Placeholder: Parse the playlist file (JSON, M3U, CSV)
+    if playlist_path.suffix.lower() == ".json":
+        with open(playlist_path, "r") as f:
+            playlist_data = json.load(f)
+    elif playlist_path.suffix.lower() in [".m3u", ".csv"]:
+        with open(playlist_path, "r") as f:
+            playlist_data = f.readlines()
+    else:
+        console.print("Unsupported playlist format.", style="bold red")
+        raise typer.Exit(code=1)
+
+    # Placeholder: Extract playlist ID (assuming JSON contains Tidal playlist ID)
+    playlist_id = playlist_data.get("id") if isinstance(playlist_data, dict) else None
+    if not playlist_id:
+        console.print("Playlist ID not found in the file.", style="bold red")
+        raise typer.Exit(code=1)
+
+    # Fetch playlist tracks from Tidal
+    try:
+        tracks, country = tidal_client.list_playlist_tracks(playlist_id)
+        console.print(f"Fetched {len(tracks)} tracks from Tidal playlist (Country: {country}).")
+    except Exception as e:
+        console.print(f"Error fetching playlist tracks: {e}", style="bold red")
+        raise typer.Exit(code=1)
+
+    # Placeholder: Match tracks with local library (logic to be implemented)
+    matched_tracks = []  # Replace with actual matching logic
+    for track in tracks:
+        # Example: Match by title (case-insensitive)
+        matched_tracks.append({"title": track.get("title"), "artist": track.get("artist", {}).get("name")})
+
+    # Write matched results to output file
     output_path = playlist_path.with_suffix(playlist_path.suffix + ".match.json")
     with open(output_path, "w") as f:
-        json.dump({"message": f"Playlist {playlist_path} matched."}, f, indent=2)
+        json.dump(matched_tracks, f, indent=2)
+
     console.print(f"Matched results written to: {output_path}")
 
 

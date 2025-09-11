@@ -781,3 +781,4 @@ def lib_ids_stats(
         for ns, cnt in ns_rows:
             ns_table.add_row(ns, str(cnt))
         console.print(ns_table)
+

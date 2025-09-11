@@ -11,7 +11,9 @@ Status legend: [Planned] not started • [WIP] in progress • [Done] shipped
 - [Planned] Centralized error model (auth/network/IO/parse)
 - [Done] Retry utility with exponential backoff (`src/flaccid/core/retry.py`)
 - [Planned] Concurrency controls (bounded semaphores, global `--concurrency`)
-- [Planned] Plugin API with capability flags and entry_points discovery
+- [Done] Plugin API with capability flags and entry_points discovery
+- [Done] Dry-run modes for `get`, `lib index`
+- [Planned] Enhanced error reporting for provider failures
 - [Planned] Task queue for downloads/indexing with retry/resume
 
 ## Providers & Metadata
@@ -26,7 +28,6 @@ Status legend: [Planned] not started • [WIP] in progress • [Done] shipped
 - [Planned] TUI for library/playlist matching (Rich)
 - [Planned] Shell completion helpers for bash/zsh/fish
 - [Done] `fla get --json` (light summary)
-- [WIP] Dry-run modes for `get`, `lib index`
 
 ## Library & Database
 - [Done] Additional indexes (album/artist)
@@ -37,14 +38,15 @@ Status legend: [Planned] not started • [WIP] in progress • [Done] shipped
 
 ## Downloads
 - [Done] Resumable downloads via `.part` files and Range requests
-- [Planned] Chunk-level retries with checksum/size validation
+- [Done] Chunk-level retries with checksum/size validation
+- [Planned] Automatic retry for network interruptions
 - [Planned] Quarantine folder for failures and requeue command
 - [Planned] Post-download hooks per track/album
 
 ## Config & Secrets
 - [Done] Provider docs (QOBUZ, TIDAL)
-- [Planned] Profiles (`--profile NAME`) and import/export with redaction
-- [Planned] `.env` support docs and precedence clarifications
+- [Done] Profiles (`--profile NAME`) and import/export with redaction
+- [Planned] Support for encrypted `.env` files
 - [Planned] Keyring override (`--no-keyring`), explicit backend selection
 
 ## Performance
@@ -75,4 +77,3 @@ Status legend: [Planned] not started • [WIP] in progress • [Done] shipped
 2) Add shell completion docs and helper command
 3) Add concurrency flag and bounded semaphore for provider downloads
 4) Start FTS5 search with a minimal `fla lib search` (read-only)
-

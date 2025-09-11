@@ -225,6 +225,17 @@ def init_db(conn: sqlite3.Connection):
             )
             """
         )
+        # New file_dedupe table for tracking duplicate files
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS file_dedupe (
+                path TEXT PRIMARY KEY,
+                size_bytes INTEGER,
+                sha256 TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         # A convenience view that picks the best available identifier per track.
         # Preference order: mb:recording > isrc > qobuz > tidal > apple > hash:sha1
         try:

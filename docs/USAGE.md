@@ -377,3 +377,25 @@ Enable completion for your shell (bash/zsh/fish/powershell). See:
 
 - Run: `fla completion` for a quick pointer
 - Details: docs/USAGE.md#shell-completion
+
+---
+
+## New Features
+
+- **Dry-run Modes**: Use `--dry-run` with commands like `get` and `lib index` to preview actions without making changes.
+- **Profiles**: Manage multiple configurations using `--profile NAME`. Export/import profiles with sensitive data redacted.
+
+### Example: Using Profiles
+
+```bash
+fla config profile --create work
+fla config profile --use work
+fla config profile --export work > work_profile.toml
+fla config profile --import work_profile.toml
+```
+
+### Enhanced Error Reporting
+
+- Provider-specific error messages for easier debugging.
+- Use `--verbose` for detailed logs.
+

@@ -11,8 +11,9 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.traceback import install
-from .commands import config, diag, get, lib, playlist, search, tag
+from .commands import config, diag, get, playlist, search, tag
 from .core.logging_util import setup_logging
+from .tools import dedupe as dedupe_mod
 
 # Install a rich traceback handler for beautiful, readable exceptions
 install(show_locals=False)
@@ -41,11 +42,6 @@ app.add_typer(
 )
 app.add_typer(
     get.app, name="get", help="🚀 Download tracks or albums from supported services."
-)
-app.add_typer(
-    lib.app,
-    name="lib",
-    help="📚 Manage your local music library (scan, index, view stats).",
 )
 app.add_typer(
     playlist.app,
@@ -110,7 +106,6 @@ def main(
         console.print("[yellow]Quiet mode: warnings and errors only.[/yellow]")
 
 
-# Simple top-level alias: `fla pm` → `fla tag playlist-match`
 @app.command("pm")
 def pm(
     url: str = typer.Argument(None, help="Playlist URL (omit to use clipboard)"),
@@ -119,6 +114,66 @@ def pm(
 ):
     from .commands import tag as tag_cmd
     return tag_cmd.tag_playlist_match(url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out)
+
+
+@app.command("xdupe")
+def xdupe(
+    root: Path = typer.Option(..., "--root", help="Root directory to scan."),
+    ext: str = typer.Option(".flac,.txt", "--ext", help="Comma-separated extensions. Empty = all."),
+    exclude_glob: list[str] = typer.Option(
+        [], "--exclude-glob", help="Glob(s) to exclude (repeatable)."
+    ),
+    workers: int = typer.Option(6, "--workers", help="Hashing threads (I/O bound)."),
+    progress: bool = typer.Option(False, "--progress", help="Print progress."),
+    out_prefix: Path = typer.Option(
+        Path("~/flaccid_dupes"),
+        "--out-prefix",
+        help="Prefix for reports (we append _groups.tsv/_dupes_only.txt).",
+    ),
+    list_only: bool = typer.Option(False, "--list", help="Only list/report duplicates."),
+    link: bool = typer.Option(False, "--link", help="Replace dupes with hard-links (reversible)."),
+    delete: bool = typer.Option(False, "--delete", help="Delete dupes (destructive)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="With --link/--delete, do not modify; just print actions."),
+    db_sync: bool = typer.Option(False, "--db-sync", help="Record sha256/size for matching Tracks in DB."),
+    export_format: str = typer.Option(
+        "txt", "--export-format", help="Export format for duplicates: txt, csv, json, or songshift."
+    ),
+    verbose: bool = typer.Option(False, "--verbose", help="Verbose human-readable output for xdupe."),
+):
+    """
+    Exact duplicate finder/fixer. Wrapper around flaccid.tools.dedupe.
+    """
+    args: list[str] = [
+        "--root",
+        str(root.expanduser().resolve()),
+        "--ext",
+        ext,
+        "--out-prefix",
+        str(Path(out_prefix).expanduser().resolve()),
+    ]
+    for pat in (exclude_glob or []):
+        args.extend(["--exclude-glob", pat])
+    if workers:
+        args.extend(["--workers", str(workers)])
+    if progress:
+        args.append("--progress")
+    if list_only:
+        args.append("--list")
+    if link:
+        args.append("--link")
+    if delete:
+        args.append("--delete")
+    if dry_run:
+        args.append("--dry-run")
+    if db_sync:
+        args.append("--db-sync")
+    if export_format:
+        args.extend(["--export-format", export_format])
+    if verbose:
+        args.append("--verbose")
+
+    rc = dedupe_mod.main(args)
+    raise typer.Exit(rc)
 
 
 def cli():

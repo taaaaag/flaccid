@@ -4,7 +4,7 @@ This document tracks near-term improvements and medium-term plans for **flaccid*
 
 Note: If "musictools" refers to a legacy or subproject name, clarify scope and migration. Do not commit secrets (API keys, tokens, passwords) to the repository; use the OS keychain via Keyring or a gitignored `.secrets.toml`.
 
-## Test Coverage (CLI and Core)
+## Test Coverage (CLI & Core)
 
 - Extend CLI tests:
   - [ ] `playlist`: Parse `JSON`/`M3U`/`TXT` happy paths + error cases

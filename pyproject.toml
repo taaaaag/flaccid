@@ -34,6 +34,7 @@ Repository = "https://github.com/tagslut/flaccid"
 
 [project.scripts]
 fla = "flaccid.cli:cli"
+flaccid-dedupe = "flaccid.tools.dedupe:main"
 
 [tool.setuptools]
 include-package-data = true
