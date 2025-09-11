@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from typer.testing import CliRunner
 
 from flaccid.cli import app
@@ -21,9 +22,5 @@ def test_tag_audit_fixes_missing_fields(tmp_path: Path):
 
     after = ID3(p)
     assert after.get("TIT2") is not None and after.get("TIT2").text[0] == "song"
-    assert (
-        after.get("TPE1") is not None and after.get("TPE1").text[0] == "Unknown Artist"
-    )
-    assert (
-        after.get("TALB") is not None and after.get("TALB").text[0] == "Unknown Album"
-    )
+    assert after.get("TPE1") is not None and after.get("TPE1").text[0] == "Unknown Artist"
+    assert after.get("TALB") is not None and after.get("TALB").text[0] == "Unknown Album"

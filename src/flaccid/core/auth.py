@@ -170,9 +170,7 @@ def clear_credentials(service: str) -> None:
             if existing is None:
                 continue
             keyring.delete_password("flaccid", full_key_name)
-        except getattr(
-            keyring.errors, "PasswordDeleteError", Exception
-        ) as e:  # macOS backend
+        except getattr(keyring.errors, "PasswordDeleteError", Exception) as e:  # macOS backend
             try:
                 still_there = keyring.get_password("flaccid", full_key_name) is not None
             except Exception:

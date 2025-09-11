@@ -13,9 +13,7 @@ async def test_qobuz_download_track_skips_if_in_db(tmp_path, monkeypatch):
     from flaccid.plugins.qobuz import QobuzPlugin
 
     db_path = tmp_path / "flaccid.db"
-    settings = FlaccidSettings(
-        library_path=tmp_path, download_path=tmp_path, db_path=db_path
-    )
+    settings = FlaccidSettings(library_path=tmp_path, download_path=tmp_path, db_path=db_path)
     monkeypatch.setattr("flaccid.plugins.qobuz._get_settings_cfg", lambda: settings)
 
     conn = get_db_connection(db_path)
@@ -73,9 +71,7 @@ async def test_tidal_download_track_skips_if_in_db(tmp_path, monkeypatch):
     from flaccid.plugins.tidal import TidalPlugin
 
     db_path = tmp_path / "flaccid.db"
-    settings = FlaccidSettings(
-        library_path=tmp_path, download_path=tmp_path, db_path=db_path
-    )
+    settings = FlaccidSettings(library_path=tmp_path, download_path=tmp_path, db_path=db_path)
     monkeypatch.setattr("flaccid.core.config.get_settings", lambda: settings)
 
     conn = get_db_connection(db_path)

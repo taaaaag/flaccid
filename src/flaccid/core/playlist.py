@@ -15,9 +15,10 @@ from rapidfuzz import fuzz
 from rich.console import Console
 from rich.progress import track
 
+from .config import get_settings
+
 # from .config import get_settings  # unused
 from .database import get_db_connection
-from .config import get_settings
 
 console = Console()
 
@@ -90,11 +91,7 @@ class PlaylistParser:
                 tracks.append(to_track(data))
         elif isinstance(data, list):
             for item in data:
-                if (
-                    isinstance(item, dict)
-                    and "tracks" in item
-                    and isinstance(item["tracks"], list)
-                ):
+                if isinstance(item, dict) and "tracks" in item and isinstance(item["tracks"], list):
                     for td in item["tracks"]:
                         if isinstance(td, dict):
                             tracks.append(to_track(td))
@@ -109,13 +106,9 @@ class PlaylistParser:
             for line in f:
                 if line.startswith("#EXTINF"):
                     info = line.split(",", 1)[1].strip()
-                    artist, title = (
-                        info.split(" - ", 1) if " - " in info else ("", info)
-                    )
+                    artist, title = info.split(" - ", 1) if " - " in info else ("", info)
                     tracks.append(
-                        PlaylistTrack(
-                            title=title, artist=artist, source=f"M3U: {file_path.name}"
-                        )
+                        PlaylistTrack(title=title, artist=artist, source=f"M3U: {file_path.name}")
                     )
         return tracks
 
@@ -169,9 +162,7 @@ class PlaylistMatcher:
     def __init__(self, db_path: Path, service: str = "all"):
         self.conn = get_db_connection(db_path)
         self.conn.create_function("normalize", 1, self._normalize)
-        self.conn.create_function(
-            "fuzz_ratio", 2, lambda s1, s2: fuzz.ratio(s1 or "", s2 or "")
-        )
+        self.conn.create_function("fuzz_ratio", 2, lambda s1, s2: fuzz.ratio(s1 or "", s2 or ""))
         # Matching strategy: 'isrc', 'fuzzy', 'path', or 'all'
         self.service = (service or "all").lower()
 
@@ -184,9 +175,7 @@ class PlaylistMatcher:
         if not text:
             return ""
         t = text.lower()
-        t = "".join(
-            c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c)
-        )
+        t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))
         t = re.sub(r"\s*\([^)]*\)|\s*\[[^\]]*\]", " ", t)
         t = re.sub(
             r"\b(original mix|album version|radio edit|feat\.?|featuring|remastered|extended)\b",
@@ -205,17 +194,11 @@ class PlaylistMatcher:
             ORDER BY (0.6 * title_score + 0.4 * artist_score) DESC
             LIMIT 20
         """
-        cursor.execute(
-            query, (self._normalize(track.title), self._normalize(track.artist))
-        )
+        cursor.execute(query, (self._normalize(track.title), self._normalize(track.artist)))
         return [dict(row) for row in cursor.fetchall()]
 
-    def _calculate_score(
-        self, track: PlaylistTrack, candidate: Dict[str, Any]
-    ) -> float:
-        title_score = fuzz.ratio(
-            self._normalize(track.title), self._normalize(candidate["title"])
-        )
+    def _calculate_score(self, track: PlaylistTrack, candidate: Dict[str, Any]) -> float:
+        title_score = fuzz.ratio(self._normalize(track.title), self._normalize(candidate["title"]))
         artist_score = fuzz.ratio(
             self._normalize(track.artist), self._normalize(candidate["artist"])
         )
@@ -247,9 +230,7 @@ class PlaylistMatcher:
                 if not code:
                     continue
                 cursor = self.conn.cursor()
-                cursor.execute(
-                    "SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,)
-                )
+                cursor.execute("SELECT * FROM tracks WHERE isrc = ? LIMIT 1", (code,))
                 row = cursor.fetchone()
                 if row:
                     candidate = dict(row)
@@ -285,9 +266,7 @@ class PlaylistMatcher:
             try:
                 cursor = self.conn.cursor()
                 pattern = f"%{track.title.strip().lower()}%"
-                cursor.execute(
-                    "SELECT * FROM tracks WHERE lower(path) LIKE ? LIMIT 1", (pattern,)
-                )
+                cursor.execute("SELECT * FROM tracks WHERE lower(path) LIKE ? LIMIT 1", (pattern,))
                 row = cursor.fetchone()
                 if row:
                     candidate = dict(row)

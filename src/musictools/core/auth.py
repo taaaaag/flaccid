@@ -29,18 +29,14 @@ def store_credentials(service: str, key: str, value: str) -> bool:
         keyring.set_password(_svc(service), key, value)
         return True
     except keyring.errors.KeyringError as e:
-        console.print(
-            f"[yellow]Warning: Could not store {key} in keyring: {e}[/yellow]"
-        )
+        console.print(f"[yellow]Warning: Could not store {key} in keyring: {e}[/yellow]")
         console.print(
             f"[dim]You may need to grant keychain access or use environment variables as fallback.[/dim]"
         )
         return False
     except Exception as e:
         # Handle macOS keychain errors like -25244
-        console.print(
-            f"[yellow]Warning: Keyring storage failed for {key}: {e}[/yellow]"
-        )
+        console.print(f"[yellow]Warning: Keyring storage failed for {key}: {e}[/yellow]")
         console.print(
             f"[dim]This is often a macOS keychain permission issue. The credential may still work if stored elsewhere.[/dim]"
         )
@@ -52,9 +48,7 @@ def get_credentials(service: str, key: str) -> str | None:
     try:
         return keyring.get_password(_svc(service), key)
     except Exception as e:
-        console.print(
-            f"[yellow]Warning: Could not retrieve {key} from keyring: {e}[/yellow]"
-        )
+        console.print(f"[yellow]Warning: Could not retrieve {key} from keyring: {e}[/yellow]")
         return None
 
 

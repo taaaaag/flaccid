@@ -11,6 +11,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.traceback import install
+
 from .commands import config, diag, get, playlist, search, tag
 from .core.logging_util import setup_logging
 from .tools import dedupe as dedupe_mod
@@ -40,23 +41,15 @@ app.add_typer(
     name="set",
     help="🔐 (Alias) Manage authentication, paths, and other settings.",
 )
-app.add_typer(
-    get.app, name="get", help="🚀 Download tracks or albums from supported services."
-)
+app.add_typer(get.app, name="get", help="🚀 Download tracks or albums from supported services.")
 app.add_typer(
     playlist.app,
     name="playlist",
     help="🎶 Match local files against a playlist and export the results.",
 )
-app.add_typer(
-    tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources."
-)
-app.add_typer(
-    search.app, name="search", help="🔎 Search providers for albums or tracks."
-)
-app.add_typer(
-    diag.app, name="diag", help="🩺 Diagnostics for providers and local tools."
-)
+app.add_typer(tag.app, name="tag", help="🏷️ Apply metadata to local files from online sources.")
+app.add_typer(search.app, name="search", help="🔎 Search providers for albums or tracks.")
+app.add_typer(diag.app, name="diag", help="🩺 Diagnostics for providers and local tools.")
 
 
 @app.command("completion")
@@ -82,12 +75,8 @@ def main(
         is_eager=True,  # Process this before any command
     ),
     verbose: bool = typer.Option(None, "--verbose", help="Enable DEBUG-level logging."),
-    quiet: bool = typer.Option(
-        None, "--quiet", help="Reduce logging to warnings and errors."
-    ),
-    json_logs: bool = typer.Option(
-        False, "--json-logs", help="Emit logs as JSON lines to stdout."
-    ),
+    quiet: bool = typer.Option(None, "--quiet", help="Reduce logging to warnings and errors."),
+    json_logs: bool = typer.Option(False, "--json-logs", help="Emit logs as JSON lines to stdout."),
 ):
     """
     FLACCID CLI - A modular FLAC music toolkit.
@@ -110,10 +99,15 @@ def main(
 def pm(
     url: str = typer.Argument(None, help="Playlist URL (omit to use clipboard)"),
     out: Path = typer.Option(None, "-o", "--out", help="Base name for outputs"),
-    prefer_qobuz: bool = typer.Option(True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"),
+    prefer_qobuz: bool = typer.Option(
+        True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"
+    ),
 ):
     from .commands import tag as tag_cmd
-    return tag_cmd.tag_playlist_match(url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out)
+
+    return tag_cmd.tag_playlist_match(
+        url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out
+    )
 
 
 @app.command("xdupe")
@@ -133,12 +127,18 @@ def xdupe(
     list_only: bool = typer.Option(False, "--list", help="Only list/report duplicates."),
     link: bool = typer.Option(False, "--link", help="Replace dupes with hard-links (reversible)."),
     delete: bool = typer.Option(False, "--delete", help="Delete dupes (destructive)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="With --link/--delete, do not modify; just print actions."),
-    db_sync: bool = typer.Option(False, "--db-sync", help="Record sha256/size for matching Tracks in DB."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="With --link/--delete, do not modify; just print actions."
+    ),
+    db_sync: bool = typer.Option(
+        False, "--db-sync", help="Record sha256/size for matching Tracks in DB."
+    ),
     export_format: str = typer.Option(
         "txt", "--export-format", help="Export format for duplicates: txt, csv, json, or songshift."
     ),
-    verbose: bool = typer.Option(False, "--verbose", help="Verbose human-readable output for xdupe."),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="Verbose human-readable output for xdupe."
+    ),
 ):
     """
     Exact duplicate finder/fixer. Wrapper around flaccid.tools.dedupe.
@@ -151,7 +151,7 @@ def xdupe(
         "--out-prefix",
         str(Path(out_prefix).expanduser().resolve()),
     ]
-    for pat in (exclude_glob or []):
+    for pat in exclude_glob or []:
         args.extend(["--exclude-glob", pat])
     if workers:
         args.extend(["--workers", str(workers)])

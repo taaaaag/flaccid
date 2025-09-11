@@ -6,16 +6,16 @@ perform simple local fixes.
 """
 
 import asyncio
-import re
 import csv
+import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+import mutagen  # noqa: F401
 import requests
 import typer
-from rich.console import Console
-import mutagen  # noqa: F401
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
+from rich.console import Console
 
 from ..core.metadata import apply_metadata
 from ..plugins.qobuz import QobuzPlugin
@@ -67,9 +67,7 @@ def tag_audit(
         "--fix",
         help="Fix simple metadata issues (title/artist/album/date/genre)",
     ),
-    report: Optional[Path] = typer.Option(
-        None, "--report", help="Write CSV report to this path"
-    ),
+    report: Optional[Path] = typer.Option(None, "--report", help="Write CSV report to this path"),
 ):
     """Audit and optionally fix missing basic tags across a folder.
 
@@ -97,11 +95,7 @@ def tag_audit(
             nonlocal changed
             try:
                 v = audio.get(key)
-                empty = (
-                    (v is None)
-                    or (isinstance(v, list) and not v)
-                    or (str(v).strip() == "")
-                )
+                empty = (v is None) or (isinstance(v, list) and not v) or (str(v).strip() == "")
                 if empty:
                     if not dry_run:
                         audio[key] = default
@@ -163,8 +157,7 @@ def tag_audit(
                             "title": _get_easy(audio, "title"),
                             "artist": _get_easy(audio, "artist"),
                             "album": _get_easy(audio, "album"),
-                            "date": _get_easy(audio, "date")
-                            or _get_easy(audio, "year"),
+                            "date": _get_easy(audio, "date") or _get_easy(audio, "year"),
                             "genre": _get_easy(audio, "genre"),
                         }
                     )
@@ -282,9 +275,7 @@ def _extract_qobuz_album_id(files: list[Path]) -> Optional[str]:
                     raw = mp4.tags[key][0]
                     try:
                         return (
-                            raw.decode("utf-8")
-                            if isinstance(raw, (bytes, bytearray))
-                            else str(raw)
+                            raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
                         )
                     except Exception:
                         return str(raw)
@@ -304,9 +295,7 @@ def tag_fix_artist(
     strip_feat: bool = typer.Option(
         False, "--strip-feat", help="Remove 'feat.'/'ft.'/'featuring' from ARTIST"
     ),
-    preview: bool = typer.Option(
-        False, "--preview", help="Show changes without writing"
-    ),
+    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
 ):
     """Replace verbose ARTIST tags with a cleaner value for all files in folder.
 
@@ -356,9 +345,7 @@ def tag_fix_artist(
                     if used_aa_list and aa_list:
                         san_list = [_strip_feat(x) or "" for x in aa_list]
                         san_list = [x for x in san_list if x]
-                        desired = (
-                            ", ".join(san_list) if san_list else _strip_feat(desired)
-                        )
+                        desired = ", ".join(san_list) if san_list else _strip_feat(desired)
                     else:
                         desired = _strip_feat(desired)
                 if desired and desired != cur:
@@ -367,9 +354,7 @@ def tag_fix_artist(
                     else:
                         # Preserve list semantics when possible
                         if used_aa_list and aa_list:
-                            san_list = [
-                                _strip_feat(x) if strip_feat else x for x in aa_list
-                            ]
+                            san_list = [_strip_feat(x) if strip_feat else x for x in aa_list]
                             san_list = [x for x in san_list if x]
                             audio["artist"] = san_list if san_list else [desired]
                         else:
@@ -393,8 +378,7 @@ def tag_fix_artist(
                     for fr in id3.getall("TXXX"):
                         desc = getattr(fr, "desc", "") or ""
                         if (
-                            desc.upper().replace(" ", "")
-                            in {"ALBUMARTIST", "ALBUMARTISTSORT"}
+                            desc.upper().replace(" ", "") in {"ALBUMARTIST", "ALBUMARTISTSORT"}
                             and fr.text
                         ):
                             aa = str(fr.text[0])
@@ -417,9 +401,7 @@ def tag_fix_artist(
                             pass
                         id3.add(TPE1(encoding=3, text=[desired]))
                         # Ensure TPE2 mirrors Album Artist if missing and we sourced from album artist
-                        if (prefer_albumartist and aa and aa.strip()) and not id3.get(
-                            "TPE2"
-                        ):
+                        if (prefer_albumartist and aa and aa.strip()) and not id3.get("TPE2"):
                             id3.add(TPE2(encoding=3, text=[aa]))
                         # Optionally persist a TXXX marker for interoperability
                         has_txxx = any(
@@ -456,9 +438,7 @@ def tag_qobuz(
         ..., "--album-id", "-a", help="Qobuz album ID to source metadata from"
     ),
     folder: Path = typer.Argument(..., help="Local album folder to tag"),
-    preview: bool = typer.Option(
-        False, "--preview", help="Show changes without writing"
-    ),
+    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
     fill_missing: bool = typer.Option(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
@@ -535,9 +515,7 @@ def tag_apple(
         help="Apple collection (album) ID to source metadata from",
     ),
     folder: Path = typer.Argument(..., help="Local album folder to tag"),
-    preview: bool = typer.Option(
-        False, "--preview", help="Show changes without writing"
-    ),
+    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
     fill_missing: bool = typer.Option(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
@@ -553,9 +531,7 @@ def tag_apple(
         # Upgrade common artworkUrl100 pattern to 1200x1200
         try:
             return (
-                str(url)
-                .replace("100x100bb", "1200x1200bb")
-                .replace("100x100-999", "1200x1200-999")
+                str(url).replace("100x100bb", "1200x1200bb").replace("100x100-999", "1200x1200-999")
             )
         except Exception:
             return url
@@ -592,9 +568,7 @@ def tag_apple(
 
         results = data.get("results") or []
         album_info = (
-            results[0]
-            if results and results[0].get("wrapperType") == "collection"
-            else None
+            results[0] if results and results[0].get("wrapperType") == "collection" else None
         )
         tracks = [r for r in results if r.get("wrapperType") == "track"]
         if not tracks:
@@ -617,14 +591,11 @@ def tag_apple(
                 "title": t.get("trackName"),
                 "artist": t.get("artistName"),
                 "album": t.get("collectionName"),
-                "albumartist": (album_info or {}).get("artistName")
-                or t.get("artistName"),
+                "albumartist": (album_info or {}).get("artistName") or t.get("artistName"),
                 "tracknumber": tn,
                 "discnumber": dn,
                 "tracktotal": (
-                    album_info.get("trackCount")
-                    if isinstance(album_info, dict)
-                    else None
+                    album_info.get("trackCount") if isinstance(album_info, dict) else None
                 ),
                 "disctotal": None,
                 "date": (album_info or {}).get("releaseDate"),
@@ -659,9 +630,7 @@ def tag_cascade(
         "--order",
         help="Cascade order using any of: tidal, apple, qobuz, beatport, mb",
     ),
-    preview: bool = typer.Option(
-        False, "--preview", help="Show changes without writing"
-    ),
+    preview: bool = typer.Option(False, "--preview", help="Show changes without writing"),
     fill_missing: bool = typer.Option(
         False, "--fill-missing", help="Only fill empty tags; do not overwrite non-empty"
     ),
@@ -715,12 +684,8 @@ def tag_cascade(
                                 if len(tagged_files) == len(local_files) and not fill_missing:
                                     break
                                 try:
-                                    tn = int(
-                                        t.get("track_number") or t.get("trackNumber") or 0
-                                    )
-                                    dn = int(
-                                        t.get("media_number") or t.get("disc_number") or 1
-                                    )
+                                    tn = int(t.get("track_number") or t.get("trackNumber") or 0)
+                                    dn = int(t.get("media_number") or t.get("disc_number") or 1)
                                 except Exception:
                                     tn, dn = 0, 1
                                 if tn <= 0:
@@ -825,8 +790,7 @@ def tag_cascade(
                             "title": r.get("trackName"),
                             "artist": r.get("artistName"),
                             "album": r.get("collectionName"),
-                            "albumartist": r.get("collectionArtistName")
-                            or r.get("artistName"),
+                            "albumartist": r.get("collectionArtistName") or r.get("artistName"),
                             "composer": r.get("composerName"),
                             "tracknumber": r.get("trackNumber"),
                             "discnumber": r.get("discNumber"),
@@ -852,7 +816,7 @@ def tag_cascade(
                                     tagged_files.add(f)
                     except Exception:
                         continue
-            
+
             elif source == "beatport":
                 headers = {
                     "User-Agent": "flaccid/0.2 (+https://github.com/tagslut/flaccid)",
@@ -864,17 +828,17 @@ def tag_cascade(
                     try:
                         # This is a hypothetical API endpoint, actual may differ
                         url = "https://api.beatport.com/v4/catalog/tracks"
-                        resp = requests.get(
-                            url, params={"isrc": isrc}, headers=headers, timeout=15
-                        )
+                        resp = requests.get(url, params={"isrc": isrc}, headers=headers, timeout=15)
                         resp.raise_for_status()
                         data = resp.json() or {}
                         tracks = data.get("results", [])
                         if not tracks:
                             continue
-                        
+
                         track = tracks[0]
-                        artists = ", ".join([a["name"] for a in track.get("artists", []) if a.get("name")])
+                        artists = ", ".join(
+                            [a["name"] for a in track.get("artists", []) if a.get("name")]
+                        )
                         title = track.get("name")
                         if track.get("mix_name"):
                             title = f'{title} ({track.get("mix_name")})'
@@ -896,7 +860,7 @@ def tag_cascade(
 
                         if fill_missing:
                             md = _filter_missing_only(f, md)
-                        
+
                         if preview:
                             console.print(
                                 f"BEATPORT isrc: {f.name} -> '{md.get('artist')}' / '{md.get('title')}'"
@@ -934,8 +898,12 @@ def tag_cascade(
                         rec = recs[0]
                         title = rec.get("title")
                         ac = rec.get("artist-credit") or []
-                        artists = [a.get("artist", {}).get("name") for a in ac if a.get("artist", {}).get("name")]
-                        
+                        artists = [
+                            a.get("artist", {}).get("name")
+                            for a in ac
+                            if a.get("artist", {}).get("name")
+                        ]
+
                         md = {}
                         if title:
                             md["title"] = title
@@ -960,20 +928,26 @@ def tag_cascade(
                         continue
 
         if not preview:
-            console.print(
-                f"[green]✅ Cascade tagging applied to {applied} file(s)[/green]"
-            )
+            console.print(f"[green]✅ Cascade tagging applied to {applied} file(s)[/green]")
 
     asyncio.run(_run())
 
 
 @app.command("playlist-match")
 def tag_playlist_match(
-    url: Optional[str] = typer.Argument(None, help="Tidal or Qobuz playlist URL (omit to use clipboard)"),
+    url: Optional[str] = typer.Argument(
+        None, help="Tidal or Qobuz playlist URL (omit to use clipboard)"
+    ),
     m3u_path: Optional[Path] = typer.Option(None, "--m3u", help="Output M3U file"),
-    songshift_path: Optional[Path] = typer.Option(None, "--songshift", help="Output SongShift playlist file"),
-    prefer_qobuz: bool = typer.Option(True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"),
-    out_base: Optional[Path] = typer.Option(None, "-o", "--out", help="Base name for outputs (e.g., out -> out.m3u, out.txt)"),
+    songshift_path: Optional[Path] = typer.Option(
+        None, "--songshift", help="Output SongShift playlist file"
+    ),
+    prefer_qobuz: bool = typer.Option(
+        True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"
+    ),
+    out_base: Optional[Path] = typer.Option(
+        None, "-o", "--out", help="Base name for outputs (e.g., out -> out.m3u, out.txt)"
+    ),
 ):
     """
     Match a streaming playlist to your library, output M3U and SongShift playlist.
@@ -983,11 +957,11 @@ def tag_playlist_match(
     - If no output paths are provided, sensible defaults are created in CWD.
     - Use -o/--out to set both outputs with one flag.
     """
-    import sqlite3
-    from difflib import SequenceMatcher
     import datetime
-    import subprocess
     import platform
+    import sqlite3
+    import subprocess
+    from difflib import SequenceMatcher
 
     def _from_clipboard() -> Optional[str]:
         try:
@@ -1008,6 +982,7 @@ def tag_playlist_match(
             if "windows" in sysname:
                 try:
                     import ctypes
+
                     CF_UNICODETEXT = 13
                     ctypes.windll.user32.OpenClipboard(0)
                     h = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
@@ -1050,12 +1025,15 @@ def tag_playlist_match(
         songshift_path = Path(f"missing_{service}_{_now_stamp()}.txt")
 
     def fetch_qobuz_playlist(playlist_url: str):
-        import re, asyncio as _asyncio
+        import asyncio as _asyncio
+        import re
+
         m = re.search(r"playlist/(\d+)", playlist_url)
         if not m:
             console.print("[red]Could not extract Qobuz playlist ID from URL.[/red]")
             raise typer.Exit(1)
         playlist_id = m.group(1)
+
         async def _fetch():
             async with QobuzPlugin() as plugin:
                 js = await plugin.api_client.get_playlist(playlist_id, limit=500)
@@ -1075,6 +1053,7 @@ def tag_playlist_match(
                         }
                     )
                 return out
+
         try:
             return _asyncio.run(_fetch())
         except Exception as e:
@@ -1087,6 +1066,7 @@ def tag_playlist_match(
 
     def fetch_tidal_playlist(playlist_url: str):
         import re
+
         m = re.search(r"playlist/([a-f0-9\-]+)", playlist_url)
         if not m:
             console.print("[red]Could not extract Tidal playlist ID from URL.[/red]")
@@ -1095,6 +1075,7 @@ def tag_playlist_match(
         # Prefer authenticated client to avoid 400s on public endpoint
         try:
             from ..commands.playlist import TidalClient  # reuse minimal client
+
             client = TidalClient()
             items, _country = client.list_playlist_tracks(playlist_id, limit=1000)
             out = []
@@ -1179,9 +1160,7 @@ def tag_playlist_match(
         return None
 
     # Fetch playlist
-    playlist_tracks = (
-        fetch_qobuz_playlist(url) if service == "qobuz" else fetch_tidal_playlist(url)
-    )
+    playlist_tracks = fetch_qobuz_playlist(url) if service == "qobuz" else fetch_tidal_playlist(url)
 
     # Get DB path
     from ..core.config import get_settings
@@ -1228,9 +1207,7 @@ def tag_playlist_match(
     except Exception as e:
         console.print(f"[yellow]Could not write SongShift: {e}[/yellow]")
 
-    console.print(
-        f"[cyan]{len(matched)} matched in library, {len(missing)} missing.[/cyan]"
-    )
+    console.print(f"[cyan]{len(matched)} matched in library, {len(missing)} missing.[/cyan]")
 
 
 # Short alias with the same behavior to reduce typing
@@ -1238,7 +1215,9 @@ def tag_playlist_match(
 def tag_playlist_match_alias(
     url: Optional[str] = typer.Argument(None, help="Playlist URL (omit to use clipboard)"),
     out_base: Optional[Path] = typer.Option(None, "-o", "--out", help="Base name for outputs"),
-    prefer_qobuz: bool = typer.Option(True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"),
+    prefer_qobuz: bool = typer.Option(
+        True, "--prefer-qobuz/--no-prefer-qobuz", help="Prefer Qobuz for missing tracks"
+    ),
 ):
     """Shorthand for `playlist-match` with sensible defaults.
 
@@ -1248,4 +1227,6 @@ def tag_playlist_match_alias(
     - Set base name: fla tag pm <url> -o mylist
     """
     # Delegate to main command with defaults
-    return tag_playlist_match(url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out_base)
+    return tag_playlist_match(
+        url=url, m3u_path=None, songshift_path=None, prefer_qobuz=prefer_qobuz, out_base=out_base
+    )

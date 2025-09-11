@@ -42,9 +42,7 @@ app = typer.Typer(
 
 # --- Tidal Device Auth Constants ---
 TIDAL_AUTH_URL = "https://auth.tidal.com/v1/oauth2"
-DEFAULT_TIDAL_CLIENT_ID = (
-    "zU4XHVVkc2tDPo4t"  # Publicly known client ID for TV/media devices
-)
+DEFAULT_TIDAL_CLIENT_ID = "zU4XHVVkc2tDPo4t"  # Publicly known client ID for TV/media devices
 
 # Default Qobuz App ID fallback (avoids prompting)
 DEFAULT_QOBUZ_APP_ID = "798273057"
@@ -106,15 +104,9 @@ def _print_persistence_summary(service: str, details: dict):
 
 @app.command("auto-qobuz")
 def auto_qobuz(
-    email: Optional[str] = typer.Option(
-        None, "-e", "--email", help="Your Qobuz email address."
-    ),
-    password: Optional[str] = typer.Option(
-        None, "-p", "--password", help="Your Qobuz password."
-    ),
-    app_id: Optional[str] = typer.Option(
-        None, "--app-id", help="A valid Qobuz App ID."
-    ),
+    email: Optional[str] = typer.Option(None, "-e", "--email", help="Your Qobuz email address."),
+    password: Optional[str] = typer.Option(None, "-p", "--password", help="Your Qobuz password."),
+    app_id: Optional[str] = typer.Option(None, "--app-id", help="A valid Qobuz App ID."),
     app_secret: Optional[str] = typer.Option(
         None,
         "--app-secret",
@@ -135,11 +127,7 @@ def auto_qobuz(
             import toml as _toml
 
             sr_paths = [
-                Path.home()
-                / "Library"
-                / "Application Support"
-                / "streamrip"
-                / "config.toml",
+                Path.home() / "Library" / "Application Support" / "streamrip" / "config.toml",
                 Path.home() / ".config" / "streamrip" / "config.toml",
             ]
             for p in sr_paths:
@@ -237,9 +225,7 @@ def auto_qobuz(
 
             # Parse response
             data = r.json()
-            token = data.get("user_auth_token") or (data.get("user") or {}).get(
-                "user_auth_token"
-            )
+            token = data.get("user_auth_token") or (data.get("user") or {}).get("user_auth_token")
         if not token:
             raise typer.Exit(f"[red]❌ Login failed. Response from Qobuz: {data}[/red]")
 
@@ -272,9 +258,7 @@ def auto_qobuz(
             store_credentials("qobuz", "user_auth_token", token)
         except Exception:
             fallback_ok = _persist_secret("qobuz_user_auth_token", token)
-            token_status = (
-                f".secrets.toml ({USER_SECRETS_FILE})" if fallback_ok else "FAILED"
-            )
+            token_status = f".secrets.toml ({USER_SECRETS_FILE})" if fallback_ok else "FAILED"
             console.print("[yellow]⚠️ Could not store token in keyring.[/yellow]")
             console.print(_diagnostics_hint())
 
@@ -312,13 +296,13 @@ def fetch_qobuz_secrets():
     BUNDLE_RE = re.compile(
         r'<script src="(/resources/\d+\.\d+\.\d+-[a-z]\d{3}/bundle\.js)"></script>'
     )
-    APP_ID_RE = re.compile(
-        r'production:{api:{appId:"(?P<app_id>\d{9})",appSecret:"\w{32}"'
-    )
+    APP_ID_RE = re.compile(r'production:{api:{appId:"(?P<app_id>\d{9})",appSecret:"\w{32}"')
     SEED_TZ_RE = re.compile(
         r'[a-z]\.initialSeed\("(?P<seed>[\w=]+)",window\.utimezone\.(?P<tz>[a-z]+)\)'
     )
-    INFO_EXTRAS_RE_TMPL = r'name:"\w+/(?P<tz>{timezones})",info:"(?P<info>[\w=]+)",extras:"(?P<extras>[\w=]+)"'
+    INFO_EXTRAS_RE_TMPL = (
+        r'name:"\w+/(?P<tz>{timezones})",info:"(?P<info>[\w=]+)",extras:"(?P<extras>[\w=]+)"'
+    )
 
     s = requests.Session()
     try:
@@ -329,9 +313,7 @@ def fetch_qobuz_secrets():
 
     m = BUNDLE_RE.search(r.text)
     if not m:
-        raise typer.Exit(
-            "[red]❌ Could not locate Qobuz bundle.js on login page.[/red]"
-        )
+        raise typer.Exit("[red]❌ Could not locate Qobuz bundle.js on login page.[/red]")
     bundle_url = BASE_URL + m.group(1)
 
     try:
@@ -357,9 +339,7 @@ def fetch_qobuz_secrets():
         order.append(tz)
 
     info_extras_re = re.compile(
-        INFO_EXTRAS_RE_TMPL.format(
-            timezones="|".join([tz.capitalize() for tz in tz_map.keys()])
-        )
+        INFO_EXTRAS_RE_TMPL.format(timezones="|".join([tz.capitalize() for tz in tz_map.keys()]))
     )
     for im in info_extras_re.finditer(bundle):
         tz, info, extras = im.group("tz", "info", "extras")
@@ -370,18 +350,14 @@ def fetch_qobuz_secrets():
     decoded: list[str] = []
     for tz, parts in tz_map.items():
         try:
-            decoded_val = base64.standard_b64decode("".join(parts)[:-44]).decode(
-                "utf-8"
-            )
+            decoded_val = base64.standard_b64decode("".join(parts)[:-44]).decode("utf-8")
             if decoded_val:
                 decoded.append(decoded_val)
         except Exception:
             continue
     decoded = [s for s in decoded if s]
     if not decoded:
-        raise typer.Exit(
-            "[red]❌ Failed to decode any Qobuz secrets from bundle.[/red]"
-        )
+        raise typer.Exit("[red]❌ Failed to decode any Qobuz secrets from bundle.[/red]")
 
     # Persist in user-scoped settings TOML (not just process memory)
     settings = get_settings()
@@ -397,16 +373,12 @@ def fetch_qobuz_secrets():
         existing = {}
         if USER_SETTINGS_FILE.exists():
             try:
-                existing = (
-                    toml.loads(USER_SETTINGS_FILE.read_text(encoding="utf-8")) or {}
-                )
+                existing = toml.loads(USER_SETTINGS_FILE.read_text(encoding="utf-8")) or {}
             except Exception:
                 existing = {}
         # Detect dynaconf-style [default] section
         target_table = None
-        if isinstance(existing, dict) and (
-            "default" in existing or "DEFAULT" in existing
-        ):
+        if isinstance(existing, dict) and ("default" in existing or "DEFAULT" in existing):
             if "default" in existing and isinstance(existing["default"], dict):
                 target_table = existing["default"]
             elif "DEFAULT" in existing and isinstance(existing["DEFAULT"], dict):
@@ -424,9 +396,7 @@ def fetch_qobuz_secrets():
             existing["DEFAULT"] = target_table
         USER_SETTINGS_FILE.write_text(toml.dumps(existing), encoding="utf-8")
     except Exception as e:
-        console.print(
-            f"[yellow]Warning:[/yellow] Failed to persist to settings file: {e}"
-        )
+        console.print(f"[yellow]Warning:[/yellow] Failed to persist to settings file: {e}")
 
     # Cache the first secret in keyring for convenience; fallback to .secrets.toml
     secret_persist = "keyring"
@@ -440,9 +410,7 @@ def fetch_qobuz_secrets():
     console.print("[green]✅ Fetched Qobuz credentials[/green]")
     console.print(f"  app_id: [blue]{app_id}[/blue]")
     console.print(f"  secrets: [blue]{len(decoded)} found[/blue]")
-    console.print(
-        f"  persisted: settings ({USER_SETTINGS_FILE}) + {secret_persist} (first secret)"
-    )
+    console.print(f"  persisted: settings ({USER_SETTINGS_FILE}) + {secret_persist} (first secret)")
 
 
 @app.command("auto-tidal")
@@ -526,16 +494,10 @@ def auto_tidal(
                     acquired_status = "keyring"
                     expires_status = "keyring"
                     try:
-                        store_credentials(
-                            "tidal", "access_token", token_data["access_token"]
-                        )
+                        store_credentials("tidal", "access_token", token_data["access_token"])
                     except Exception:
-                        ok = _persist_secret(
-                            "tidal_access_token", token_data["access_token"]
-                        )
-                        access_status = (
-                            f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
-                        )
+                        ok = _persist_secret("tidal_access_token", token_data["access_token"])
+                        access_status = f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
                     try:
                         store_credentials(
                             "tidal",
@@ -546,20 +508,12 @@ def auto_tidal(
                         ok = _persist_secret(
                             "tidal_refresh_token", token_data.get("refresh_token", "")
                         )
-                        refresh_status = (
-                            f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
-                        )
+                        refresh_status = f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
                     try:
-                        store_credentials(
-                            "tidal", "token_acquired_at", str(int(time.time()))
-                        )
+                        store_credentials("tidal", "token_acquired_at", str(int(time.time())))
                     except Exception:
-                        ok = _persist_secret(
-                            "tidal_token_acquired_at", str(int(time.time()))
-                        )
-                        acquired_status = (
-                            f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
-                        )
+                        ok = _persist_secret("tidal_token_acquired_at", str(int(time.time())))
+                        acquired_status = f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
                     if "expires_in" in token_data:
                         try:
                             store_credentials(
@@ -573,9 +527,7 @@ def auto_tidal(
                                 str(token_data["expires_in"]),
                             )
                             expires_status = (
-                                f".secrets.toml ({USER_SECRETS_FILE})"
-                                if ok
-                                else "FAILED"
+                                f".secrets.toml ({USER_SECRETS_FILE})" if ok else "FAILED"
                             )
 
                     console.print("[green]✅ Tidal authentication successful.[/green]")
@@ -586,9 +538,7 @@ def auto_tidal(
                             "access_token": access_status,
                             "refresh_token": refresh_status,
                             "acquired_at": acquired_status,
-                            "expires_in": (
-                                expires_status if "expires_in" in token_data else "n/a"
-                            ),
+                            "expires_in": (expires_status if "expires_in" in token_data else "n/a"),
                         },
                     )
                     return
@@ -611,9 +561,7 @@ def config_path(
         "--db",
         help="Set a custom path for the library database file (flaccid.db).",
     ),
-    reset: bool = typer.Option(
-        False, "--reset", help="Reset paths to their default values."
-    ),
+    reset: bool = typer.Option(False, "--reset", help="Reset paths to their default values."),
 ):
     """
     View or update the paths for your music library and downloads.
@@ -666,12 +614,8 @@ def config_show(
         "--json",
         help="Output configuration and credential status as styled JSON",
     ),
-    json_raw: bool = typer.Option(
-        False, "--json-raw", help="Output raw JSON to stdout"
-    ),
-    plain: bool = typer.Option(
-        False, "--plain", help="Plain text output (no colors/emojis)"
-    ),
+    json_raw: bool = typer.Option(False, "--json-raw", help="Output raw JSON to stdout"),
+    plain: bool = typer.Option(False, "--plain", help="Plain text output (no colors/emojis)"),
 ):
     """
     Display the current configuration and stored credential status.
@@ -720,9 +664,7 @@ def config_show(
     local_file = Path("settings.toml")
     if local_file.exists():
         try:
-            local_cfg: dict[str, Any] = (
-                toml.loads(local_file.read_text(encoding="utf-8")) or {}
-            )
+            local_cfg: dict[str, Any] = toml.loads(local_file.read_text(encoding="utf-8")) or {}
             if "library_path" in local_cfg:
                 data["paths"]["library"] = str(
                     Path(local_cfg["library_path"]).expanduser().resolve()
@@ -732,9 +674,7 @@ def config_show(
                     Path(local_cfg["download_path"]).expanduser().resolve()
                 )
             if "db_path" in local_cfg:
-                data["paths"]["database"] = str(
-                    Path(local_cfg["db_path"]).expanduser().resolve()
-                )
+                data["paths"]["database"] = str(Path(local_cfg["db_path"]).expanduser().resolve())
         except Exception:
             pass
     if json_raw:
@@ -759,20 +699,12 @@ def config_show(
             typer.echo(f"  App ID:          {label}")
         else:
             typer.echo("  App ID:          Not Set")
-        typer.echo(
-            f"  User Auth Token: {'Set' if data['qobuz']['user_auth_token'] else 'Not Set'}"
-        )
+        typer.echo(f"  User Auth Token: {'Set' if data['qobuz']['user_auth_token'] else 'Not Set'}")
         typer.echo("")
         typer.echo("Tidal Credentials:")
-        typer.echo(
-            f"  Client ID:     {'Set' if data['tidal']['client_id'] else 'Not Set'}"
-        )
-        typer.echo(
-            f"  Access Token:  {'Set' if data['tidal']['access_token'] else 'Not Set'}"
-        )
-        typer.echo(
-            f"  Refresh Token: {'Set' if data['tidal']['refresh_token'] else 'Not Set'}"
-        )
+        typer.echo(f"  Client ID:     {'Set' if data['tidal']['client_id'] else 'Not Set'}")
+        typer.echo(f"  Access Token:  {'Set' if data['tidal']['access_token'] else 'Not Set'}")
+        typer.echo(f"  Refresh Token: {'Set' if data['tidal']['refresh_token'] else 'Not Set'}")
         return
 
     console.print("[bold]Current Configuration[/bold]")
@@ -805,9 +737,7 @@ def config_show(
 
 @app.command("validate")
 def config_validate(
-    service: str = typer.Argument(
-        ..., help="Service to validate (e.g., 'qobuz' or 'tidal')."
-    ),
+    service: str = typer.Argument(..., help="Service to validate (e.g., 'qobuz' or 'tidal')."),
 ):
     """Validate presence (and for Tidal, simple expiry info) of stored credentials."""
     svc = service.lower()

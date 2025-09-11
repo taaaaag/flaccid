@@ -16,8 +16,8 @@ from rich.console import Console
 
 from .database import (
     Track,
-    get_db_connection,
     get_all_tracks,
+    get_db_connection,
     insert_track,
     remove_track_by_path,
     upsert_track_ids,
@@ -112,16 +112,12 @@ def index_file(file_path: Path, verify: bool = False) -> Track | None:
                     album = str(id3.get("TALB").text[0]) or album
                 if id3.get("TRCK"):
                     try:
-                        tracknumber = int(
-                            str(id3.get("TRCK").text[0]).split("/")[0] or 0
-                        )
+                        tracknumber = int(str(id3.get("TRCK").text[0]).split("/")[0] or 0)
                     except Exception:
                         tracknumber = 0
                 if id3.get("TPOS"):
                     try:
-                        discnumber = int(
-                            str(id3.get("TPOS").text[0]).split("/")[0] or 0
-                        )
+                        discnumber = int(str(id3.get("TPOS").text[0]).split("/")[0] or 0)
                     except Exception:
                         discnumber = 0
                 if id3.get("TSRC"):
@@ -233,9 +229,7 @@ def refresh_library(conn: sqlite3.Connection, library_root: Path, verify: bool =
                 try:
                     fh = compute_hash(Path(tr.path)) if tr.path else None
                     if fh:
-                        conn.execute(
-                            "UPDATE tracks SET hash = ? WHERE id = ?", (fh, rowid)
-                        )
+                        conn.execute("UPDATE tracks SET hash = ? WHERE id = ?", (fh, rowid))
                         conn.commit()
                 except Exception:
                     fh = None
@@ -301,12 +295,8 @@ def get_library_stats(db_path: Path) -> dict:
         cur = conn.cursor()
         stats = {
             "Total Tracks": cur.execute("SELECT COUNT(*) FROM tracks").fetchone()[0],
-            "Total Albums": cur.execute(
-                "SELECT COUNT(DISTINCT album) FROM tracks"
-            ).fetchone()[0],
-            "Total Artists": cur.execute(
-                "SELECT COUNT(DISTINCT artist) FROM tracks"
-            ).fetchone()[0],
+            "Total Albums": cur.execute("SELECT COUNT(DISTINCT album) FROM tracks").fetchone()[0],
+            "Total Artists": cur.execute("SELECT COUNT(DISTINCT artist) FROM tracks").fetchone()[0],
             "Tracks with ISRC": cur.execute(
                 "SELECT COUNT(*) FROM tracks WHERE isrc IS NOT NULL"
             ).fetchone()[0],

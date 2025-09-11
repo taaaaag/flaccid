@@ -36,18 +36,23 @@ class TidalClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-        self.client_id: Optional[str] = (
-            getattr(self.settings, "tidal_client_id", None)
-            or os.getenv("FLA_TIDAL_CLIENT_ID")
-        )
+        self.client_id: Optional[str] = getattr(
+            self.settings, "tidal_client_id", None
+        ) or os.getenv("FLA_TIDAL_CLIENT_ID")
         if not self.client_id:
             raise FlaccidError(
                 "Tidal client_id not configured. Set settings.tidal_client_id or $FLA_TIDAL_CLIENT_ID."
             )
 
-        access = getattr(self.settings, "tidal_access_token", None) or os.getenv("FLA_TIDAL_ACCESS_TOKEN")
-        refresh = getattr(self.settings, "tidal_refresh_token", None) or os.getenv("FLA_TIDAL_REFRESH_TOKEN")
-        exp = float(getattr(self.settings, "tidal_expires_at", 0) or os.getenv("FLA_TIDAL_EXPIRES_AT", "0"))
+        access = getattr(self.settings, "tidal_access_token", None) or os.getenv(
+            "FLA_TIDAL_ACCESS_TOKEN"
+        )
+        refresh = getattr(self.settings, "tidal_refresh_token", None) or os.getenv(
+            "FLA_TIDAL_REFRESH_TOKEN"
+        )
+        exp = float(
+            getattr(self.settings, "tidal_expires_at", 0) or os.getenv("FLA_TIDAL_EXPIRES_AT", "0")
+        )
 
         if not (access and refresh):
             raise FlaccidError("Tidal credentials not set. Run `fla auth tidal` to sign in.")
@@ -58,8 +63,9 @@ class TidalClient:
         self.country: Optional[str] = env_country or getattr(self.settings, "tidal_country", None)
 
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "flaccid/1.0 (+github.com/georgeskhawam/flaccid)"})
-
+        self.session.headers.update(
+            {"User-Agent": "flaccid/1.0 (+github.com/georgeskhawam/flaccid)"}
+        )
 
     # ---------------- auth ----------------
 
@@ -141,7 +147,9 @@ class TidalClient:
             return j
         return []
 
-    def list_album_tracks(self, album_id: str, limit: int = 200) -> Tuple[List[Dict[str, Any]], str]:
+    def list_album_tracks(
+        self, album_id: str, limit: int = 200
+    ) -> Tuple[List[Dict[str, Any]], str]:
         country = self.resolve_country()
         params = {"countryCode": country, "limit": limit}
         r = self._get(f"{TIDAL_OPENAPI}/albums/{album_id}/tracks", params, legacy=False)
@@ -156,9 +164,13 @@ class TidalClient:
             raise FlaccidError("Tidal legacy 401: invalid token or client_id (X-Tidal-Token).")
         if r2.status_code == 404:
             raise FlaccidError(f"Album {album_id} is not available in region '{country}' (404).")
-        raise FlaccidError(f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}")
+        raise FlaccidError(
+            f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}"
+        )
 
-    def list_playlist_tracks(self, playlist_id: str, limit: int = 1000) -> Tuple[List[Dict[str, Any]], str]:
+    def list_playlist_tracks(
+        self, playlist_id: str, limit: int = 1000
+    ) -> Tuple[List[Dict[str, Any]], str]:
         """Return playlist items (track objects or wrappers) and resolved country."""
         country = self.resolve_country()
         params = {"countryCode": country, "limit": limit}
@@ -173,8 +185,12 @@ class TidalClient:
         if r2.status_code == 401:
             raise FlaccidError("Tidal legacy 401: invalid token or client_id.")
         if r2.status_code in (400, 404):
-            raise FlaccidError(f"Playlist {playlist_id} not available in region '{country}' ({r2.status_code}).")
-        raise FlaccidError(f"Tidal error playlist tracks: openapi={r.status_code} legacy={r2.status_code}")
+            raise FlaccidError(
+                f"Playlist {playlist_id} not available in region '{country}' ({r2.status_code})."
+            )
+        raise FlaccidError(
+            f"Tidal error playlist tracks: openapi={r.status_code} legacy={r2.status_code}"
+        )
 
     def get_track(self, track_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         country = self.resolve_country()
@@ -210,6 +226,7 @@ class TidalClient:
 
 # ---------- helpers expected elsewhere ----------
 
+
 def choose_quality(prefer: str) -> List[str]:
     ladder = {
         "hires": ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
@@ -225,6 +242,7 @@ def apply_metadata(target_path: Path, meta: Dict[str, Any]) -> None:
 
 
 # ------------------------ high-level plugin used by `get` ------------------------
+
 
 class TidalPlugin:
     """
@@ -254,7 +272,9 @@ class TidalPlugin:
     async def download_track(self, tid: str, prefer_quality: str = "lossless") -> Path:
         meta = await self._get_track_metadata(tid)
         title = (meta.get("title") or f"track_{tid}").strip()
-        artist = (meta.get("artist", {}) or {}).get("name") or (meta.get("artistName") or "Unknown Artist")
+        artist = (meta.get("artist", {}) or {}).get("name") or (
+            meta.get("artistName") or "Unknown Artist"
+        )
         album = (meta.get("album", {}) or {}).get("title") or meta.get("albumTitle") or "Singles"
 
         def safe(s: str) -> str:
@@ -303,7 +323,9 @@ class TidalPlugin:
         apply_metadata(target, meta_blob)
 
         url_path = target.with_suffix(target.suffix + ".url")
-        url_path.write_text((url.strip() + "\n") if url else "# No direct URL (manifest/DRM)\n", encoding="utf-8")
+        url_path.write_text(
+            (url.strip() + "\n") if url else "# No direct URL (manifest/DRM)\n", encoding="utf-8"
+        )
 
         if not target.exists():
             target.touch()
@@ -319,12 +341,14 @@ def fetch_album_track_list(album_id: str) -> List[Dict[str, Any]]:
         raise FlaccidError(f"No tracks for album {album_id} in region '{country}'.")
     return items
 
+
 import json
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
+
 from ..plugins.tidal import TidalClient
 
 console = Console()
@@ -336,9 +360,7 @@ app = typer.Typer(
 
 @app.command("match")
 def playlist_match(
-    playlist_path: Path = typer.Argument(
-        ..., help="Path to the playlist file (JSON, M3U, CSV)."
-    )
+    playlist_path: Path = typer.Argument(..., help="Path to the playlist file (JSON, M3U, CSV).")
 ):
     """
     Match a playlist (JSON, M3U, CSV) to your library.
@@ -377,7 +399,9 @@ def playlist_match(
     matched_tracks = []  # Replace with actual matching logic
     for track in tracks:
         # Example: Match by title (case-insensitive)
-        matched_tracks.append({"title": track.get("title"), "artist": track.get("artist", {}).get("name")})
+        matched_tracks.append(
+            {"title": track.get("title"), "artist": track.get("artist", {}).get("name")}
+        )
 
     # Write matched results to output file
     output_path = playlist_path.with_suffix(playlist_path.suffix + ".match.json")

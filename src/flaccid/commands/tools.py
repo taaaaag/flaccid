@@ -4,6 +4,7 @@ Utility tools for FLACCID.
 This module exposes helper commands under `fla tools`, including
 an exact duplicate finder/fixer that integrates with the library DB.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -34,8 +35,12 @@ def tools_dedupe(
     list_only: bool = typer.Option(False, "--list", help="Only list/report duplicates."),
     link: bool = typer.Option(False, "--link", help="Replace dupes with hard-links (reversible)."),
     delete: bool = typer.Option(False, "--delete", help="Delete dupes (destructive)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="With --link/--delete, do not modify; just print actions."),
-    db_sync: bool = typer.Option(False, "--db-sync", help="Record sha256/size for matching Tracks in DB."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="With --link/--delete, do not modify; just print actions."
+    ),
+    db_sync: bool = typer.Option(
+        False, "--db-sync", help="Record sha256/size for matching Tracks in DB."
+    ),
 ):
     """
     Exact duplicate finder/fixer. Wrapper around flaccid.tools.dedupe.
@@ -48,7 +53,7 @@ def tools_dedupe(
         "--out-prefix",
         str(Path(out_prefix).expanduser().resolve()),
     ]
-    for pat in (exclude_glob or []):
+    for pat in exclude_glob or []:
         args.extend(["--exclude-glob", pat])
     args.extend(["--workers", str(int(workers))])
     if progress:
@@ -67,4 +72,3 @@ def tools_dedupe(
     rc = dedupe_mod.main(args)
     if rc != 0:
         raise typer.Exit(code=rc)
-

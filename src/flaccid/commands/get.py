@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 
 from ..core.config import get_settings
-from ..core.database import get_db_connection, init_db, has_track
+from ..core.database import get_db_connection, has_track, init_db
 from ..plugins.qobuz import QobuzPlugin
 from ..plugins.tidal import TidalPlugin
 
@@ -85,9 +85,7 @@ async def _download_qobuz(
                             verify=verify,
                         )
                         if count > 0:
-                            console.print(
-                                f"[green]✅ Downloaded album in {q} quality[/green]"
-                            )
+                            console.print(f"[green]✅ Downloaded album in {q} quality[/green]")
                             return
                         if q != quality_fallback[-1]:
                             console.print(
@@ -107,9 +105,7 @@ async def _download_qobuz(
                             limit=artist_limit,
                         )
                         if count > 0:
-                            console.print(
-                                f"[green]✅ Downloaded playlist in {q} quality[/green]"
-                            )
+                            console.print(f"[green]✅ Downloaded playlist in {q} quality[/green]")
                             return
                         # No tracks found; try lower quality won't help, break
                         raise RuntimeError("Playlist contained no downloadable tracks")
@@ -134,18 +130,12 @@ async def _download_qobuz(
                         if track_id:
                             try:
                                 td = await plugin.api_client.get_track(str(track_id))
-                                isrc = (
-                                    (td or {}).get("isrc")
-                                    if isinstance(td, dict)
-                                    else None
-                                )
+                                isrc = (td or {}).get("isrc") if isinstance(td, dict) else None
                                 st = get_settings()
                                 db_path = st.db_path or (st.library_path / "flaccid.db")
                                 conn = get_db_connection(db_path)
                                 try:
-                                    if has_track(
-                                        conn, isrc=isrc, qobuz_id=str(track_id)
-                                    ):
+                                    if has_track(conn, isrc=isrc, qobuz_id=str(track_id)):
                                         console.print(
                                             "[cyan]Already in library; skipping download[/cyan]"
                                         )
@@ -166,9 +156,7 @@ async def _download_qobuz(
                             track_id, q, output_dir, allow_mp3, verify=verify
                         )
                         if ok:
-                            console.print(
-                                f"[green]✅ Downloaded in {q} quality[/green]"
-                            )
+                            console.print(f"[green]✅ Downloaded in {q} quality[/green]")
                             return
                         # not ok → try lower quality if available
                         if q != quality_fallback[-1]:
@@ -256,9 +244,7 @@ async def _download_tidal(
                         db_path = st.db_path or (st.library_path / "flaccid.db")
                         conn = get_db_connection(db_path)
                         try:
-                            isrc = (
-                                (md or {}).get("isrc") if isinstance(md, dict) else None
-                            )
+                            isrc = (md or {}).get("isrc") if isinstance(md, dict) else None
                             if isrc:
                                 row = conn.execute(
                                     "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1",
@@ -292,9 +278,7 @@ async def _download_tidal(
                 return
             except Exception as e:
                 if q != quality_fallback[-1]:  # Not the last quality option
-                    console.print(
-                        f"[yellow]⚠️ {q} quality failed, trying lower quality...[/yellow]"
-                    )
+                    console.print(f"[yellow]⚠️ {q} quality failed, trying lower quality...[/yellow]")
                     continue
                 else:
                     raise e
@@ -317,9 +301,7 @@ async def _download_from_url(
     """Auto-detect service from URL and download."""
     console.print(f"🔍 Detecting service from URL: [blue]{url}[/blue]")
 
-    tidal_match = re.search(
-        r"tidal\.com/(browse/)?(track|album|playlist|artist)/([\w-]+)", url
-    )
+    tidal_match = re.search(r"tidal\.com/(browse/)?(track|album|playlist|artist)/([\w-]+)", url)
     if tidal_match:
         media_type, media_id = tidal_match.group(2), tidal_match.group(3)
         console.print(f"Detected Tidal {media_type} with ID: {media_id}")
@@ -487,9 +469,7 @@ async def get_main(
     # If it's a URL, auto-detect and download
     if _is_url(input_value):
         if dry_run:
-            console.print(
-                f"[cyan]Dry-run:[/cyan] Would download from URL: {input_value}"
-            )
+            console.print(f"[cyan]Dry-run:[/cyan] Would download from URL: {input_value}")
         else:
             await _download_from_url(
                 input_value,
@@ -501,9 +481,7 @@ async def get_main(
                 verify,
                 prefer_29=try_29,
                 concurrency=concurrency,
-                default_quality=(
-                    _normalize_quality(url_quality) if url_quality else None
-                ),
+                default_quality=(_normalize_quality(url_quality) if url_quality else None),
             )
             return
 
@@ -698,12 +676,8 @@ def _normalize_quality(q: Optional[str]) -> str:
 
 @app.command("qobuz")
 def get_qobuz(
-    album_id: Optional[str] = typer.Option(
-        None, "--album-id", help="Qobuz album ID to download"
-    ),
-    track_id: Optional[str] = typer.Option(
-        None, "--track-id", help="Qobuz track ID to download"
-    ),
+    album_id: Optional[str] = typer.Option(None, "--album-id", help="Qobuz album ID to download"),
+    track_id: Optional[str] = typer.Option(None, "--track-id", help="Qobuz track ID to download"),
     quality: Optional[str] = typer.Option(
         "max", "--quality", "-q", help="Quality: max|hires|lossless|mp3|1-4"
     ),
@@ -716,9 +690,7 @@ def get_qobuz(
     concurrency: int = typer.Option(
         4, "--concurrency", help="Max concurrent downloads for album tasks"
     ),
-    verify: bool = typer.Option(
-        False, "--verify", help="Run ffprobe to verify outputs"
-    ),
+    verify: bool = typer.Option(False, "--verify", help="Run ffprobe to verify outputs"),
     qobuz_rps: Optional[int] = typer.Option(
         None, "--qobuz-rps", help="Qobuz API rate limit (requests per second)"
     ),
@@ -768,12 +740,8 @@ def get_qobuz(
 
 @app.command("tidal")
 def get_tidal(
-    album_id: Optional[str] = typer.Option(
-        None, "--album-id", help="Tidal album ID to download"
-    ),
-    track_id: Optional[str] = typer.Option(
-        None, "--track-id", help="Tidal track ID to download"
-    ),
+    album_id: Optional[str] = typer.Option(None, "--album-id", help="Tidal album ID to download"),
+    track_id: Optional[str] = typer.Option(None, "--track-id", help="Tidal track ID to download"),
     quality: Optional[str] = typer.Option(
         "max", "--quality", "-q", help="Quality: max|hires|lossless|mp3"
     ),
@@ -783,9 +751,7 @@ def get_tidal(
     concurrency: int = typer.Option(
         4, "--concurrency", help="Max concurrent downloads for album tasks"
     ),
-    verify: bool = typer.Option(
-        False, "--verify", help="Run ffprobe to verify outputs"
-    ),
+    verify: bool = typer.Option(False, "--verify", help="Run ffprobe to verify outputs"),
     tidal_rps: Optional[int] = typer.Option(
         None, "--tidal-rps", help="Tidal API rate limit (requests per second)"
     ),
@@ -829,12 +795,8 @@ def main(
     input_value: Optional[str] = typer.Argument(
         None, help="URL, or use with -q/-t flags for service-specific IDs"
     ),
-    qobuz_id: Optional[str] = typer.Option(
-        None, "-q", "--qobuz", help="Qobuz track/album ID"
-    ),
-    tidal_id: Optional[str] = typer.Option(
-        None, "-t", "--tidal", help="Tidal track/album ID"
-    ),
+    qobuz_id: Optional[str] = typer.Option(None, "-q", "--qobuz", help="Qobuz track/album ID"),
+    tidal_id: Optional[str] = typer.Option(None, "-t", "--tidal", help="Tidal track/album ID"),
     track: bool = typer.Option(
         False,
         "--track",
@@ -951,11 +913,7 @@ def main(
             "service": (
                 "qobuz"
                 if qobuz_id or (input_value or "").find("qobuz") != -1
-                else (
-                    "tidal"
-                    if tidal_id or (input_value or "").find("tidal") != -1
-                    else None
-                )
+                else ("tidal" if tidal_id or (input_value or "").find("tidal") != -1 else None)
             ),
             "mode": "album" if album else ("track" if track else None),
             "allow_mp3": allow_mp3,

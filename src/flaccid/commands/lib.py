@@ -92,9 +92,7 @@ def lib_scan(
             )
             raise typer.Exit(1)
 
-        console.print(
-            f"[cyan]Watching {scan_path} for changes... (Press Ctrl+C to stop)[/cyan]"
-        )
+        console.print(f"[cyan]Watching {scan_path} for changes... (Press Ctrl+C to stop)[/cyan]")
 
         class ScanHandler(FileSystemEventHandler):
             def on_any_event(self, event):
@@ -270,9 +268,7 @@ def lib_enrich_mb(
         console.print("[green]No tracks need MB enrichment.[/green]")
         return
 
-    console.print(
-        f"[cyan]Enriching up to {len(rows)} tracks via MusicBrainz (by ISRC)...[/cyan]"
-    )
+    console.print(f"[cyan]Enriching up to {len(rows)} tracks via MusicBrainz (by ISRC)...[/cyan]")
     base = "https://musicbrainz.org/ws/2/recording"
     headers = {
         "User-Agent": "flaccid/0.1 (+https://github.com/; CLI enrichment)",
@@ -312,9 +308,7 @@ def lib_enrich_mb(
             if not rec_id:
                 continue
             if dry_run:
-                console.print(
-                    f"would add mb:recording {rec_id} for '{artist} - {title}'"
-                )
+                console.print(f"would add mb:recording {rec_id} for '{artist} - {title}'")
             else:
                 upsert_track_id(conn, rowid, "mb:recording", rec_id, preferred=True)
                 added += 1
@@ -328,13 +322,9 @@ def lib_enrich_mb(
                 barcode = rel.get("barcode")
                 if not dry_run:
                     if rel_id:
-                        upsert_album_id(
-                            conn, albumartist, album, None, "mb:release", rel_id
-                        )
+                        upsert_album_id(conn, albumartist, album, None, "mb:release", rel_id)
                     if rg_id:
-                        upsert_album_id(
-                            conn, albumartist, album, None, "mb:release-group", rg_id
-                        )
+                        upsert_album_id(conn, albumartist, album, None, "mb:release-group", rg_id)
                     if barcode:
                         upsert_album_id(conn, albumartist, album, None, "upc", barcode)
             time.sleep(delay)
@@ -355,9 +345,7 @@ def lib_enrich_mb_fuzzy(
     limit: int = typer.Option(100, "--limit", help="Max tracks to enrich this run"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview without writing"),
     rps: float = typer.Option(1.0, "--rps", help="Max requests/sec to MusicBrainz"),
-    duration_tolerance: int = typer.Option(
-        6, "--tolerance", help="Max seconds off duration"
-    ),
+    duration_tolerance: int = typer.Option(6, "--tolerance", help="Max seconds off duration"),
     only_missing: bool = typer.Option(
         True, "--only-missing/--all", help="Only tracks without provider IDs/ISRC"
     ),
@@ -431,8 +419,7 @@ def lib_enrich_mb_fuzzy(
                     r
                     for r in rec_list
                     if r.get("length") is None
-                    or abs(int(r.get("length")) / 1000 - int(duration))
-                    <= int(duration_tolerance)
+                    or abs(int(r.get("length")) / 1000 - int(duration)) <= int(duration_tolerance)
                 ] or rec_list
             except Exception:
                 candidates = rec_list
@@ -456,17 +443,13 @@ def lib_enrich_mb_fuzzy(
                 time.sleep(delay)
                 continue
             if dry_run:
-                console.print(
-                    f"would add mb:recording {rec_id} for '{artist} - {title}' (fuzzy)"
-                )
+                console.print(f"would add mb:recording {rec_id} for '{artist} - {title}' (fuzzy)")
             else:
                 upsert_track_id(conn, rowid, "mb:recording", rec_id, preferred=False)
                 added += 1
             time.sleep(delay)
         except requests.RequestException as e:
-            console.print(
-                f"[yellow]MB request failed for '{artist} - {title}': {e}[/yellow]"
-            )
+            console.print(f"[yellow]MB request failed for '{artist} - {title}': {e}[/yellow]")
             time.sleep(delay)
             continue
         except Exception as e:
@@ -474,9 +457,7 @@ def lib_enrich_mb_fuzzy(
             continue
 
     if not dry_run:
-        console.print(
-            f"[green]✅ Added {added} fuzzy MusicBrainz recording IDs.[/green]"
-        )
+        console.print(f"[green]✅ Added {added} fuzzy MusicBrainz recording IDs.[/green]")
 
 
 @app.command("search")
@@ -513,13 +494,9 @@ def lib_search(
                 "WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? LIMIT ?"
             )
             rows = conn.execute(sql, (like, like, like, limit)).fetchall()
-    results = [
-        {"title": r[0], "artist": r[1], "album": r[2], "path": r[3]} for r in rows
-    ]
+    results = [{"title": r[0], "artist": r[1], "album": r[2], "path": r[3]} for r in rows]
     if json_output:
-        typer.echo(
-            json.dumps({"query": query, "count": len(results), "results": results})
-        )
+        typer.echo(json.dumps({"query": query, "count": len(results), "results": results}))
         return
     table = Table(title=f"Search results for '{query}'")
     table.add_column("Title", style="cyan")
@@ -527,9 +504,7 @@ def lib_search(
     table.add_column("Album", style="green")
     table.add_column("Path", style="dim")
     for r in results:
-        table.add_row(
-            r["title"] or "", r["artist"] or "", r["album"] or "", r["path"] or ""
-        )
+        table.add_row(r["title"] or "", r["artist"] or "", r["album"] or "", r["path"] or "")
     console.print(table)
 
 
@@ -545,9 +520,7 @@ def lib_ensure_ids(
         "--compute-hash/--no-compute-hash",
         help="Compute file hash when no other IDs are present",
     ),
-    limit: Optional[int] = typer.Option(
-        None, "--limit", help="Limit number of tracks to process"
-    ),
+    limit: Optional[int] = typer.Option(None, "--limit", help="Limit number of tracks to process"),
 ):
     """Ensure every track has at least one identifier recorded.
 
@@ -606,9 +579,7 @@ def lib_ensure_ids(
                     p = Path(path)
                     if p.exists():
                         fh = compute_hash(p)
-                        cur.execute(
-                            "UPDATE tracks SET hash = ? WHERE id = ?", (fh, tid)
-                        )
+                        cur.execute("UPDATE tracks SET hash = ? WHERE id = ?", (fh, tid))
                         conn.commit()
                         hashed += 1
                 except Exception:
@@ -781,4 +752,3 @@ def lib_ids_stats(
         for ns, cnt in ns_rows:
             ns_table.add_row(ns, str(cnt))
         console.print(ns_table)
-

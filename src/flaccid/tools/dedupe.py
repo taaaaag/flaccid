@@ -37,22 +37,23 @@ import argparse
 import fnmatch
 import hashlib
 import os
+import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-import sqlite3
 
 # ---- Optional Flaccid imports (soft dependency) -----------------------------
 _HAVE_DB = False
 try:
     from flaccid.core.config import get_settings  # type: ignore
-    from flaccid.core.database import (
+    from flaccid.core.database import (  # type: ignore
         get_db_connection,
         init_db,
         upsert_track_id,
-    )  # type: ignore
+    )
+
     _HAVE_DB = True
 except Exception:
     _HAVE_DB = False
@@ -70,12 +71,14 @@ class FileMeta:
 @dataclass
 class Group:
     """Files that are byte-identical."""
+
     size: int
     sha256: str
     files: List[Path]  # canonical first, dupes after
 
 
 # ---- Utilities ---------------------------------------------------------------
+
 
 def parse_exts(ext_csv: str) -> Optional[Tuple[str, ...]]:
     if not ext_csv.strip():
@@ -98,8 +101,9 @@ def excluded(rel_posix: str, pats: Sequence[str]) -> bool:
     return False
 
 
-def iter_files(root: Path, exts: Optional[Tuple[str, ...]],
-               excludes: Sequence[str]) -> Iterable[Path]:
+def iter_files(
+    root: Path, exts: Optional[Tuple[str, ...]], excludes: Sequence[str]
+) -> Iterable[Path]:
     """
     Walk root, honoring ext filter and exclude globs (POSIX style).
     Excludes are matched against relative paths, e.g., "MUSIC/**".
@@ -155,9 +159,14 @@ def files_equal(a: Path, b: Path) -> bool:
 
 # ---- Core dedupe -------------------------------------------------------------
 
-def build_groups(root: Path, exts: Optional[Tuple[str, ...]],
-                 excludes: Sequence[str], workers: int,
-                 progress: bool) -> List[Group]:
+
+def build_groups(
+    root: Path,
+    exts: Optional[Tuple[str, ...]],
+    excludes: Sequence[str],
+    workers: int,
+    progress: bool,
+) -> List[Group]:
     """
     Walk -> group by size -> hash multi-file sizes -> byte-verify into groups.
     """
@@ -184,6 +193,7 @@ def build_groups(root: Path, exts: Optional[Tuple[str, ...]],
         print(f"▶ Need to hash {len(to_hash)} files (of {total})", file=sys.stderr)
 
     hash_buckets: Dict[Tuple[int, str], List[Path]] = {}
+
     def _hash_one(p: Path):
         try:
             return p, p.stat().st_size, sha256_file(p)
@@ -227,10 +237,11 @@ def build_groups(root: Path, exts: Optional[Tuple[str, ...]],
 
 # ---- Actions ----------------------------------------------------------------
 
+
 def write_reports(groups: List[Group], out_prefix: Path, progress: bool) -> Tuple[Path, Path]:
     tsv = out_prefix.with_suffix("")  # if user passed foo.tsv, we’ll use prefix as-is
     groups_tsv = Path(f"{tsv}_groups.tsv")
-    dupes_txt  = Path(f"{tsv}_dupes_only.txt")
+    dupes_txt = Path(f"{tsv}_dupes_only.txt")
 
     groups_tsv.parent.mkdir(parents=True, exist_ok=True)
     with groups_tsv.open("w", encoding="utf-8") as g, dupes_txt.open("w", encoding="utf-8") as d:
@@ -246,7 +257,7 @@ def write_reports(groups: List[Group], out_prefix: Path, progress: bool) -> Tupl
 
     if progress:
         print(f"→ wrote {groups_tsv}", file=sys.stderr)
-        print(f"→ wrote {dupes_txt}",  file=sys.stderr)
+        print(f"→ wrote {dupes_txt}", file=sys.stderr)
     return groups_tsv, dupes_txt
 
 
@@ -258,7 +269,9 @@ def same_fs(a: Path, b: Path) -> bool:
 
 
 def hardlink_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[int, int, int]:
-    planned = 0; linked = 0; skipped = 0
+    planned = 0
+    linked = 0
+    skipped = 0
     for gr in groups:
         keep = gr.files[0]
         for dupe in gr.files[1:]:
@@ -289,8 +302,10 @@ def hardlink_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[
 
             tmp = dupe.with_name(dupe.name + ".hl_tmp")
             try:
-                try: tmp.unlink()
-                except FileNotFoundError: pass
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
                 os.link(keep, tmp)
                 os.replace(tmp, dupe)  # atomic swap
                 linked += 1
@@ -299,7 +314,8 @@ def hardlink_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[
             except Exception as e:
                 skipped += 1
                 try:
-                    if tmp.exists(): tmp.unlink()
+                    if tmp.exists():
+                        tmp.unlink()
                 except Exception:
                     pass
                 if progress:
@@ -308,7 +324,9 @@ def hardlink_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[
 
 
 def delete_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[int, int, int]:
-    planned = 0; deleted = 0; skipped = 0
+    planned = 0
+    deleted = 0
+    skipped = 0
     for gr in groups:
         for dupe in gr.files[1:]:
             planned += 1
@@ -334,6 +352,7 @@ def delete_dupes(groups: List[Group], dry_run: bool, progress: bool) -> Tuple[in
 
 # ---- Optional DB sync --------------------------------------------------------
 
+
 def db_sync(groups: List[Group]) -> None:
     """
     Write per-path duplicate metadata into the project's SQLite DB and upsert
@@ -341,7 +360,10 @@ def db_sync(groups: List[Group]) -> None:
     Creates a sidecar table 'file_dedupe' if it does not exist.
     """
     if not _HAVE_DB:
-        print("DB sync requested, but flaccid.core.database is not available; skipping.", file=sys.stderr)
+        print(
+            "DB sync requested, but flaccid.core.database is not available; skipping.",
+            file=sys.stderr,
+        )
         return
 
     try:
@@ -389,15 +411,22 @@ def db_sync(groups: List[Group]) -> None:
                 upsert_file_meta(p_str, gr.size, gr.sha256)
                 updated_rows += 1
                 # If track exists, upsert a hash:sha256 identifier
-                row = cur.execute("SELECT id FROM tracks WHERE path = ? LIMIT 1", (p_str,)).fetchone()
+                row = cur.execute(
+                    "SELECT id FROM tracks WHERE path = ? LIMIT 1", (p_str,)
+                ).fetchone()
                 if row and row[0] is not None:
                     try:
-                        upsert_track_id(conn, int(row[0]), "hash:sha256", gr.sha256, preferred=False)
+                        upsert_track_id(
+                            conn, int(row[0]), "hash:sha256", gr.sha256, preferred=False
+                        )
                         id_rows += 1
                     except Exception:
                         pass
         conn.commit()
-        print(f"DB sync: wrote {updated_rows} file_dedupe row(s); upserted {id_rows} identifier(s).", file=sys.stderr)
+        print(
+            f"DB sync: wrote {updated_rows} file_dedupe row(s); upserted {id_rows} identifier(s).",
+            file=sys.stderr,
+        )
         conn.close()
     except Exception as e:
         print(f"DB sync failed: {e}", file=sys.stderr)
@@ -422,31 +451,48 @@ def sync_to_db(conn: sqlite3.Connection, group: Group):
 
 # ---- CLI --------------------------------------------------------------------
 
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Exact duplicate finder/fixer (bit-for-bit).")
-    ap.add_argument("--root", default="/Volumes/rad/MUSIC",
-                    help="Root directory to scan.")
-    ap.add_argument("--ext", default=".flac,.txt",
-                    help="Comma-separated extensions. Empty = all.")
-    ap.add_argument("--exclude-glob", action="append", default=[],
-                    help="Glob(s) to exclude (e.g., 'MUSIC/**'). Can repeat.")
-    ap.add_argument("--workers", type=int, default=6,
-                    help="Hashing threads (I/O bound).")
-    ap.add_argument("--progress", action="store_true",
-                    help="Print progress to stderr.")
-    ap.add_argument("--out-prefix", default="~/flaccid_dupes",
-                    help="Prefix for reports (we append _groups.tsv/_dupes_only.txt).")
-    ap.add_argument("--verbose", action="store_true", help="Enable verbose but human-readable output.")
+    ap.add_argument("--root", default="/Volumes/rad/MUSIC", help="Root directory to scan.")
+    ap.add_argument("--ext", default=".flac,.txt", help="Comma-separated extensions. Empty = all.")
+    ap.add_argument(
+        "--exclude-glob",
+        action="append",
+        default=[],
+        help="Glob(s) to exclude (e.g., 'MUSIC/**'). Can repeat.",
+    )
+    ap.add_argument("--workers", type=int, default=6, help="Hashing threads (I/O bound).")
+    ap.add_argument("--progress", action="store_true", help="Print progress to stderr.")
+    ap.add_argument(
+        "--out-prefix",
+        default="~/flaccid_dupes",
+        help="Prefix for reports (we append _groups.tsv/_dupes_only.txt).",
+    )
+    ap.add_argument(
+        "--verbose", action="store_true", help="Enable verbose but human-readable output."
+    )
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--list", action="store_true", help="Only list/report duplicates.")
-    mode.add_argument("--link", action="store_true", help="Replace dupes with hard-links (reversible).")
+    mode.add_argument(
+        "--link", action="store_true", help="Replace dupes with hard-links (reversible)."
+    )
     mode.add_argument("--delete", action="store_true", help="Delete dupes (destructive).")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="With --link/--delete, do not modify; just print actions.")
-    ap.add_argument("--db-sync", action="store_true",
-                    help="If Flaccid DB is available, record sha256/size for matching Tracks.")
-    ap.add_argument("--export-format", choices=["txt", "csv", "json", "songshift"],
-                    help="Export format for duplicates: txt, csv, json, or songshift.")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --link/--delete, do not modify; just print actions.",
+    )
+    ap.add_argument(
+        "--db-sync",
+        action="store_true",
+        help="If Flaccid DB is available, record sha256/size for matching Tracks.",
+    )
+    ap.add_argument(
+        "--export-format",
+        choices=["txt", "csv", "json", "songshift"],
+        help="Export format for duplicates: txt, csv, json, or songshift.",
+    )
 
     args = ap.parse_args(argv)
 
@@ -500,6 +546,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         f.write("\n".join(str(file) for file in group.files) + "\n\n")
             elif args.export_format == "csv":
                 import csv
+
                 with open(export_path, "w", newline="") as f:
                     writer = csv.writer(f)
                     writer.writerow(["Group", "File"])
@@ -508,8 +555,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                             writer.writerow([i, file])
             elif args.export_format == "json":
                 import json
+
                 with open(export_path, "w") as f:
-                    json.dump({i: [str(file) for file in group.files] for i, group in enumerate(groups, start=1)}, f, indent=2)
+                    json.dump(
+                        {
+                            i: [str(file) for file in group.files]
+                            for i, group in enumerate(groups, start=1)
+                        },
+                        f,
+                        indent=2,
+                    )
             elif args.export_format == "songshift":
                 # Try to produce a SongShift-friendly export: prefer provider URLs (Qobuz/Tidal),
                 # then ISRC, then fallback to human "Artist - Title". Requires DB to be present to
@@ -570,7 +625,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.link:
         print("Linking duplicates to canonical files...", file=sys.stderr)
-        planned, linked, skipped = hardlink_dupes(groups, dry_run=args.dry_run, progress=args.progress)
+        planned, linked, skipped = hardlink_dupes(
+            groups, dry_run=args.dry_run, progress=args.progress
+        )
         print("\nSummary (link):")
         print(f"  planned: {planned}")
         print(f"  linked : {linked}")
@@ -581,7 +638,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.delete:
         print("Deleting duplicate files...", file=sys.stderr)
-        planned, deleted, skipped = delete_dupes(groups, dry_run=args.dry_run, progress=args.progress)
+        planned, deleted, skipped = delete_dupes(
+            groups, dry_run=args.dry_run, progress=args.progress
+        )
         print("\nSummary (delete):")
         print(f"  planned: {planned}")
         print(f"  deleted: {deleted}")

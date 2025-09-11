@@ -1,5 +1,6 @@
 # src/flaccid/core/errors.py
 
+
 class FlaccidError(Exception):
     """Base application error for FLACCID.
 

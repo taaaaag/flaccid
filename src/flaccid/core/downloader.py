@@ -64,9 +64,7 @@ async def download_file(
                 "•",
                 TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task(
-                    f"Downloading {dest_path.name}", total=total_size
-                )
+                task = progress.add_task(f"Downloading {dest_path.name}", total=total_size)
 
                 # Download the file in chunks and update the progress bar
                 # Append if resuming

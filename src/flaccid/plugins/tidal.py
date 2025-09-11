@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
 import keyring
+import requests
 
 from ..core.config import get_settings
 from ..core.errors import FlaccidError
@@ -87,10 +87,12 @@ class TidalClient:
         # TLS verification defaults to True; only override if caller explicitly asks.
         if verify is not None:
             self.session.verify = bool(verify)
-        self.session.headers.update({
-            "User-Agent": "flaccid/1.0 (+github.com/georgeskhawam/flaccid)",
-            "Accept": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "flaccid/1.0 (+github.com/georgeskhawam/flaccid)",
+                "Accept": "application/json",
+            }
+        )
 
         self._cached_country: Optional[str] = None
 
@@ -109,8 +111,19 @@ class TidalClient:
         self.tokens = TidalTokens(access, refresh, expires_at)
 
         # Prefer explicit country from env/settings
-        env_country = (os.getenv("FLA_TIDAL_COUNTRY") or os.getenv("TIDAL_REGION") or os.getenv("TIDAL_COUNTRY") or "").strip().upper()
-        self.country: Optional[str] = env_country or self._from_settings("tidal_country", "tidal.country", "tidal_region", "tidal.region")
+        env_country = (
+            (
+                os.getenv("FLA_TIDAL_COUNTRY")
+                or os.getenv("TIDAL_REGION")
+                or os.getenv("TIDAL_COUNTRY")
+                or ""
+            )
+            .strip()
+            .upper()
+        )
+        self.country: Optional[str] = env_country or self._from_settings(
+            "tidal_country", "tidal.country", "tidal_region", "tidal.region"
+        )
 
     # ---------------- settings/keyring helpers ----------------
 
@@ -158,9 +171,15 @@ class TidalClient:
             pass  # Keychain locked or unavailable; keep running
 
     def _load_tokens(self) -> Tuple[Optional[str], Optional[str], float]:
-        access = self._from_settings("tidal_access_token", "tidal.access_token", "TIDAL_ACCESS_TOKEN")
-        refresh = self._from_settings("tidal_refresh_token", "tidal.refresh_token", "TIDAL_REFRESH_TOKEN")
-        expires_at_raw = self._from_settings("tidal_expires_at", "tidal.expires_at", "TIDAL_EXPIRES_AT")
+        access = self._from_settings(
+            "tidal_access_token", "tidal.access_token", "TIDAL_ACCESS_TOKEN"
+        )
+        refresh = self._from_settings(
+            "tidal_refresh_token", "tidal.refresh_token", "TIDAL_REFRESH_TOKEN"
+        )
+        expires_at_raw = self._from_settings(
+            "tidal_expires_at", "tidal.expires_at", "TIDAL_EXPIRES_AT"
+        )
 
         if not access:
             access = self._kr_get("access_token")
@@ -202,7 +221,10 @@ class TidalClient:
 
     def _refresh(self, refresh_token: str) -> Tuple[str, str, float]:
         token_url = f"{TIDAL_AUTH}/token"
-        headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
         data = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
@@ -214,7 +236,9 @@ class TidalClient:
             raise FlaccidError(f"Tidal token refresh failed: HTTP {r.status_code} {r.text}")
         p = r.json() if r.content else {}
         if "error" in p:
-            raise FlaccidError(f"Tidal token refresh error: {p.get('error')}: {p.get('error_description')}")
+            raise FlaccidError(
+                f"Tidal token refresh error: {p.get('error')}: {p.get('error_description')}"
+            )
         access = _k(p, "access_token", "accessToken")
         new_refresh = _k(p, "refresh_token", "refreshToken") or refresh_token
         ttl = int(_k(p, "expires_in", "expiresIn", default=3600))
@@ -224,7 +248,10 @@ class TidalClient:
         return access, new_refresh, expires_at
 
     def _device_authorize(self) -> Tuple[str, str, float]:
-        headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        }
 
         # Ask ONLY for allowed scopes (no PLAYBACK here).
         scope = REQUIRED_SCOPES
@@ -236,10 +263,14 @@ class TidalClient:
             timeout=25,
         )
         if r.status_code != 200:
-            raise FlaccidError(f"Tidal device authorization start failed: HTTP {r.status_code} {r.text}")
+            raise FlaccidError(
+                f"Tidal device authorization start failed: HTTP {r.status_code} {r.text}"
+            )
         d = r.json() if r.content else {}
         if "error" in d:
-            raise FlaccidError(f"TIDAL device auth error: {d.get('error')}: {d.get('error_description')}")
+            raise FlaccidError(
+                f"TIDAL device auth error: {d.get('error')}: {d.get('error_description')}"
+            )
 
         device_code = _k(d, "device_code", "deviceCode")
         user_code = _k(d, "user_code", "userCode")
@@ -248,7 +279,9 @@ class TidalClient:
         verification_uri_complete = _k(d, "verification_uri_complete", "verificationUriComplete")
 
         if not device_code or not user_code:
-            raise FlaccidError(f"TIDAL device auth response missing fields: {json.dumps(d, ensure_ascii=False)}")
+            raise FlaccidError(
+                f"TIDAL device auth response missing fields: {json.dumps(d, ensure_ascii=False)}"
+            )
 
         msg = f"""
 TIDAL sign-in required:
@@ -285,7 +318,9 @@ Waiting for authorization...
                 refresh = _k(p, "refresh_token", "refreshToken")
                 ttl = int(_k(p, "expires_in", "expiresIn", default=3600))
                 if not access or not refresh:
-                    raise FlaccidError(f"TIDAL device token response missing fields: {json.dumps(p, ensure_ascii=False)}")
+                    raise FlaccidError(
+                        f"TIDAL device token response missing fields: {json.dumps(p, ensure_ascii=False)}"
+                    )
                 expires_at = self._persist_tokens(access, refresh, ttl)
                 print("✅ TIDAL authorization complete.")
                 return access, refresh, expires_at
@@ -307,8 +342,8 @@ Waiting for authorization...
     def _ensure_token(self) -> None:
         if not self.tokens.access_token or self._is_expired():
             try:
-                self.tokens.access_token, self.tokens.refresh_token, self.tokens.expires_at = self._refresh(
-                    self.tokens.refresh_token
+                self.tokens.access_token, self.tokens.refresh_token, self.tokens.expires_at = (
+                    self._refresh(self.tokens.refresh_token)
                 )
             except Exception:
                 access, refresh, exp = self._device_authorize()
@@ -384,7 +419,9 @@ Waiting for authorization...
             return j
         return []
 
-    def list_album_tracks(self, album_id: str, limit: int = 200) -> Tuple[List[Dict[str, Any]], str]:
+    def list_album_tracks(
+        self, album_id: str, limit: int = 200
+    ) -> Tuple[List[Dict[str, Any]], str]:
         country = self.resolve_country()
         params = {"countryCode": country, "limit": limit}
         r = self._get(f"{TIDAL_OPENAPI}/albums/{album_id}/tracks", params, legacy=False)
@@ -399,7 +436,9 @@ Waiting for authorization...
             raise FlaccidError("Tidal legacy 401: invalid token or client_id (X-Tidal-Token).")
         if r2.status_code == 404:
             raise FlaccidError(f"Album {album_id} is not available in region '{country}' (404).")
-        raise FlaccidError(f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}")
+        raise FlaccidError(
+            f"Tidal error album tracks: openapi={r.status_code} legacy={r2.status_code}"
+        )
 
     def get_track(self, track_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         country = self.resolve_country()
@@ -441,6 +480,7 @@ Waiting for authorization...
 
 # ---------- helpers expected elsewhere ----------
 
+
 def choose_quality(prefer: str) -> List[str]:
     ladder = {
         "hires": ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
@@ -456,6 +496,7 @@ def apply_metadata(target_path: Path, meta: Dict[str, Any]) -> None:
 
 
 # ------------------------ high-level plugin used by `get` ------------------------
+
 
 class TidalPlugin:
     """
@@ -525,7 +566,9 @@ class TidalPlugin:
 
         meta = await self._get_track_metadata(tid)
         title = (meta.get("title") or f"track_{tid}").strip()
-        artist = (meta.get("artist", {}) or {}).get("name") or (meta.get("artistName") or "Unknown Artist")
+        artist = (meta.get("artist", {}) or {}).get("name") or (
+            meta.get("artistName") or "Unknown Artist"
+        )
         album = (meta.get("album", {}) or {}).get("title") or meta.get("albumTitle") or "Singles"
 
         def safe(s: str) -> str:
@@ -569,7 +612,9 @@ class TidalPlugin:
         apply_metadata(target, meta_blob)
 
         url_path = target.with_suffix(target.suffix + ".url")
-        url_path.write_text((url.strip() + "\n") if url else "# No direct URL (manifest/DRM)\n", encoding="utf-8")
+        url_path.write_text(
+            (url.strip() + "\n") if url else "# No direct URL (manifest/DRM)\n", encoding="utf-8"
+        )
 
         if not target.exists():
             target.touch()

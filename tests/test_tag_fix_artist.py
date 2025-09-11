@@ -34,9 +34,7 @@ def test_fix_artist_strip_feat_with_albumartist(tmp_path: Path):
 
     from flaccid.commands import tag as tag_cmd
 
-    tag_cmd.tag_fix_artist(
-        folder=tmp_path, prefer_albumartist=True, strip_feat=True, preview=False
-    )
+    tag_cmd.tag_fix_artist(folder=tmp_path, prefer_albumartist=True, strip_feat=True, preview=False)
 
     after = ID3(p)
     assert after.get("TPE1").text[0] == "Album Artist"

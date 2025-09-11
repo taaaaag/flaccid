@@ -93,9 +93,7 @@ def has_track(
     try:
         cur = conn.cursor()
         if isrc:
-            row = cur.execute(
-                "SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)
-            ).fetchone()
+            row = cur.execute("SELECT 1 FROM tracks WHERE isrc=? LIMIT 1", (str(isrc),)).fetchone()
             if row is not None:
                 return True
         if qobuz_id:
@@ -204,12 +202,8 @@ def init_db(conn: sqlite3.Connection):
             )
             """
         )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_track_ids_track ON track_ids (track_rowid)"
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_track_ids_ns ON track_ids (namespace)"
-        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_ids_track ON track_ids (track_rowid)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_track_ids_ns ON track_ids (namespace)")
         # Optional album-level identifiers without creating a full albums table
         cur.execute(
             """
@@ -314,9 +308,7 @@ def insert_track(conn: sqlite3.Connection, track: Track, *, commit: bool = True)
     columns = ", ".join(track_dict.keys())
     placeholders = ", ".join([f":{key}" for key in track_dict.keys()])
 
-    update_clauses = ", ".join(
-        [f"{key}=excluded.{key}" for key in track_dict if key != "path"]
-    )
+    update_clauses = ", ".join([f"{key}=excluded.{key}" for key in track_dict if key != "path"])
     sql = f"INSERT INTO tracks ({columns}) VALUES ({placeholders}) ON CONFLICT(path) DO UPDATE SET {update_clauses}"
 
     try:
@@ -325,9 +317,7 @@ def insert_track(conn: sqlite3.Connection, track: Track, *, commit: bool = True)
         if commit:
             conn.commit()
         # Always return the row id for the path (lastrowid can be 0 on update)
-        row = cur.execute(
-            "SELECT id FROM tracks WHERE path = ?", (track.path,)
-        ).fetchone()
+        row = cur.execute("SELECT id FROM tracks WHERE path = ?", (track.path,)).fetchone()
         return row[0] if row else None
     except sqlite3.Error as e:
         console.print(f"[red]Failed to insert track {track.path}: {e}[/red]")
